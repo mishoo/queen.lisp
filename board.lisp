@@ -1,9 +1,6 @@
 (in-package #:cl-chess)
 
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (defreadtable cl-chess:syntax
-    (:merge :standard))
-  (in-readtable cl-chess:syntax))
+(in-readtable cl-chess:syntax)
 
 (defconstant C.QUEEN      #x01)
 (defconstant C.ROOK       #x02)
@@ -20,6 +17,8 @@
 (defconstant C.BLACK      #x00)
 
 (defparameter C.FEN-START "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
+
+(defparameter *unicode* nil)
 
 (deftype piece ()
   '(unsigned-byte 7))
@@ -85,23 +84,25 @@
 
 (defun piece-char (p)
   (declare (type piece p))
-  (ecase p
-    ;; empty
-    (0 #\-)
-    ;; black
-    (#.C.PAWN #\p)
-    (#.C.KNIGHT #\n)
-    (#.C.KING #\k)
-    (#.C.BISHOP #\b)
-    (#.C.ROOK #\r)
-    (#.C.QUEEN #\q)
-    ;; white
-    (#.(white C.PAWN) #\P)
-    (#.(white C.KNIGHT) #\N)
-    (#.(white C.KING) #\K)
-    (#.(white C.BISHOP) #\B)
-    (#.(white C.ROOK) #\R)
-    (#.(white C.QUEEN) #\Q)))
+  (if *unicode*
+      (piece-unicode p)
+      (ecase p
+        ;; empty
+        (0 #\-)
+        ;; black
+        (#.C.PAWN #\p)
+        (#.C.KNIGHT #\n)
+        (#.C.KING #\k)
+        (#.C.BISHOP #\b)
+        (#.C.ROOK #\r)
+        (#.C.QUEEN #\q)
+        ;; white
+        (#.(white C.PAWN) #\P)
+        (#.(white C.KNIGHT) #\N)
+        (#.(white C.KING) #\K)
+        (#.(white C.BISHOP) #\B)
+        (#.(white C.ROOK) #\R)
+        (#.(white C.QUEEN) #\Q))))
 
 (defun piece-unicode (p)
   (declare (type piece p))
@@ -419,17 +420,17 @@
   (declare (type move move))
   (ldb (byte 7 12) move))
 
-(defun move-black (move)
+(defun move-black? (move)
   (declare (type move move))
   (zerop (ldb (byte 1 18) move)))
 
-(defun move-white (move)
+(defun move-white? (move)
   (declare (type move move))
-  (not (move-black move)))
+  (not (move-black? move)))
 
 (defun move-side (move)
   (declare (type move move))
-  (if (move-black move) C.BLACK C.WHITE))
+  (if (move-black? move) C.BLACK C.WHITE))
 
 (defun move-capture? (move)
   (not (zerop (ldb (byte 5 23) move))))
@@ -439,7 +440,7 @@
   (let ((p (ldb (byte 5 23) move)))
     (cond
       ((zerop p) nil)
-      ((move-black move) (logior p C.WHITE))
+      ((move-black? move) (logior p C.WHITE))
       (t p))))
 
 (defun move-promote? (move)
@@ -450,7 +451,7 @@
   (let ((p (ldb (byte 4 19) move)))
     (cond
       ((zerop p) nil)
-      ((move-black move) p)
+      ((move-black? move) p)
       (t (logior p C.WHITE)))))
 
 (defun move-set-promoted-piece (move promo)
@@ -458,26 +459,26 @@
            (type piece promo))
   (dpb (logand promo C.PROMOTABLE) (byte 4 19) move))
 
-(defun move-enpa (move)
+(defun move-enpa? (move)
   (declare (type move move))
   (not (zerop (ldb (byte 1 28) move))))
 
 (defun move-captured-index (move)
   (declare (type move move))
   (cond
-    ((move-enpa move)
+    ((move-enpa? move)
      (board-index (ldb (byte 3 3) move)
                   (ldb (byte 3 6) move)))
     ((move-capture? move)
      (move-to move))))
 
-(defun move-oo (move)
+(defun move-oo? (move)
   (declare (type move move))
   (and (is-king? (move-piece move))
        (= 2 (- (move-to move)
                (move-from move)))))
 
-(defun move-ooo (move)
+(defun move-ooo? (move)
   (declare (type move move))
   (and (is-king? (move-piece move))
        (= 2 (- (move-from move)
@@ -498,15 +499,15 @@
         (from (move-from move))
         (to (move-to move))
         (piece (move-piece move))
-        (white (move-white move))
-        (black (move-black move))
+        (white (move-white? move))
+        (black (move-black? move))
         (promo (move-promoted-piece move)))
     ;; update board
     (board-set board to (or promo piece))
     (board-set board from 0)
     ;; handle special moves (castle and en-passant)
     (cond
-      ((move-oo move)
+      ((move-oo? move)
        (cond
          (white
           (board-set board $H1 0)
@@ -514,7 +515,7 @@
          (t
           (board-set board $H8 0)
           (board-set board $F8 C.ROOK))))
-      ((move-ooo move)
+      ((move-ooo? move)
        (cond
          (white
           (board-set board $A1 0)
@@ -522,7 +523,7 @@
          (t
           (board-set board $A8 0)
           (board-set board $D8 C.ROOK))))
-      ((move-enpa move)
+      ((move-enpa? move)
        (board-set board (move-captured-index move) 0)))
     ;; update game state
     (with-slots (state enpa side halfmove fullmove) game
@@ -556,19 +557,19 @@
         (to (move-to move))
         (captured (move-captured-piece move))
         (piece (move-piece move))
-        (white (move-white move)))
+        (white (move-white? move)))
     ;; restore board
     (board-set board from piece)
     (cond
       (captured
        (board-set board (move-captured-index move) captured)
-       (when (move-enpa move)
+       (when (move-enpa? move)
          (board-set board to 0)))
       (t
        (board-set board to 0)))
     ;; special moves
     (cond
-      ((move-oo move)
+      ((move-oo? move)
        (cond
          (white
           (board-set board $H1 #.(white C.ROOK))
@@ -576,7 +577,7 @@
          (t
           (board-set board $H8 C.ROOK)
           (board-set board $F8 0))))
-      ((move-ooo move)
+      ((move-ooo? move)
        (cond
          (white
           (board-set board $A1 #.(white C.ROOK))
@@ -652,7 +653,7 @@
         (check (logior opp C.KING) delta))
       nil)))
 
-(defmethod game-get-moves ((game game))
+(defmethod game-compute-moves ((game game))
   (let* ((side (game-side game))
          (opp (logxor side C.WHITE))
          (board (game-board game))
@@ -776,7 +777,7 @@
                moves)))
 
 (defmethod game-parse-san ((game game) (in stream)
-                           &optional (moves (game-get-moves game)))
+                           &optional (moves (game-compute-moves game)))
   (let* ((side (game-side game))
          (white (is-white? side))
          (promo nil)
@@ -915,11 +916,11 @@
       (loop for m in moves when (matches m) collect m))))
 
 (defmethod game-parse-san ((game game) (san string)
-                           &optional (moves (game-get-moves game)))
+                           &optional (moves (game-compute-moves game)))
   (with-input-from-string (in san)
     (game-parse-san game in moves)))
 
-(defmethod game-san ((game game) move &optional (moves (game-get-moves game)))
+(defmethod game-san ((game game) move &key (moves (game-compute-moves game)) &allow-other-keys)
   (declare (type move move))
   (let ((piece (move-piece move))
         (from (move-from move))
@@ -927,8 +928,8 @@
     (with-output-to-string (out)
       (with-row-col (from row col)
         (cond
-          ((move-oo move) (write-string "O-O" out))
-          ((move-ooo move) (write-string "O-O-O" out))
+          ((move-oo? move) (write-string "O-O" out))
+          ((move-ooo? move) (write-string "O-O-O" out))
           ((is-pawn? piece)
            (when (move-capture? move)
              (format out "~Cx" (code-char (+ col 97))))
@@ -959,11 +960,11 @@
                (write-string "x" out))
              (write-string (index-field to) out)))))
       (with-move (game move)
-        (cond ((null (game-get-moves game))
-               (if (attacked? game)
-                   (write-string "#" out)))
-              ((attacked? game)
-               (write-string "+" out)))))))
+        (if (attacked? game)
+            (write-string (if (null (game-compute-moves game))
+                              "#"
+                              "+")
+                          out))))))
 
 (defun perft (game depth)
   (let ((captures 0)
@@ -973,9 +974,9 @@
     (labels ((rec (depth)
                (if (zerop depth)
                    1
-                   (loop for m in (game-get-moves game)
+                   (loop for m in (game-compute-moves game)
                          when (and (= depth 1) (move-capture? m)) do (incf captures)
-                           when (and (= depth 1) (move-enpa m)) do (incf enpa)
+                           when (and (= depth 1) (move-enpa? m)) do (incf enpa)
                              when (and (= depth 1) (move-castle? m)) do (incf castles)
                                when (and (= depth 1) (move-promote? m)) do (incf promotions)
                                  summing (with-move (game m) (rec (1- depth)))))))
@@ -985,10 +986,10 @@
         (values count captures enpa castles promotions)))))
 
 (defun divide (game depth)
-  (loop with moves = (game-get-moves game)
+  (loop with moves = (game-compute-moves game)
         with count and captures and enpa and castles and promotions
         for m in moves
-        for san = (game-san game m moves)
+        for san = (game-san game m :moves moves)
         do (with-move (game m)
              (with-output-to-string (*standard-output*)
                (multiple-value-setq (count captures enpa castles promotions) (perft game (1- depth))))
@@ -1001,80 +1002,80 @@
 
 ;;; XXX: test code
 
-(defun print-move (move)
-  (declare (type move move))
-  (cond
-    ((move-oo move)
-     "O-O")
-    ((move-ooo move)
-     "O-O-O")
-    (t
-     (format nil "[~A]~A~A~A~A"
-             (piece-char (move-piece move))
-             (index-field (move-from move))
-             (aif (move-captured-piece move)
-                  (format nil "~A[~A]"
-                          (if (move-enpa move) #\/ #\x)
-                          (piece-char it))
-                  #\-)
-             (index-field (move-to move))
-             (aif (move-promoted-piece move)
-                  (format nil "=~A" (char-upcase (piece-char it)))
-                  "")))))
+;; (defun print-move (move)
+;;   (declare (type move move))
+;;   (cond
+;;     ((move-oo? move)
+;;      "O-O")
+;;     ((move-ooo? move)
+;;      "O-O-O")
+;;     (t
+;;      (format nil "[~A]~A~A~A~A"
+;;              (piece-char (move-piece move))
+;;              (index-field (move-from move))
+;;              (aif (move-captured-piece move)
+;;                   (format nil "~A[~A]"
+;;                           (if (move-enpa? move) #\/ #\x)
+;;                           (piece-char it))
+;;                   #\-)
+;;              (index-field (move-to move))
+;;              (aif (move-promoted-piece move)
+;;                   (format nil "=~A" (char-upcase (piece-char it)))
+;;                   "")))))
 
-(defparameter g (make-instance 'game))
-(reset-game g)
+;; (defparameter g (make-instance 'game))
+;; (reset-game g)
 
-;; (defun m (game from to &optional (promo 0))
-;;   (let* ((board (game-board game))
-;;          (piece (board-get board from))
-;;          (capture (board-get board to))
-;;          (oo (and (is-king? piece)
-;;                   (= to (+ from 2))))
-;;          (ooo (and (is-king? piece)
-;;                    (= to (- from 2))))
-;;          (enpa (and (is-pawn? piece)
-;;                     (logtest 1 (abs (- from to)))
-;;                     (zerop capture))))
-;;     (when enpa
-;;       (setf capture (aref board
-;;                           (with-row-col (from row col) row)
-;;                           (with-row-col (to row col) col))))
-;;     (make-move from to piece :enpa (if enpa 1 0)
-;;                              :oo (if oo 1 0)
-;;                              :ooo (if ooo 1 0)
-;;                              :capture capture
-;;                              :promo promo)))
+;; ;; (defun m (game from to &optional (promo 0))
+;; ;;   (let* ((board (game-board game))
+;; ;;          (piece (board-get board from))
+;; ;;          (capture (board-get board to))
+;; ;;          (oo (and (is-king? piece)
+;; ;;                   (= to (+ from 2))))
+;; ;;          (ooo (and (is-king? piece)
+;; ;;                    (= to (- from 2))))
+;; ;;          (enpa (and (is-pawn? piece)
+;; ;;                     (logtest 1 (abs (- from to)))
+;; ;;                     (zerop capture))))
+;; ;;     (when enpa
+;; ;;       (setf capture (aref board
+;; ;;                           (with-row-col (from row col) row)
+;; ;;                           (with-row-col (to row col) col))))
+;; ;;     (make-move from to piece :enpa (if enpa 1 0)
+;; ;;                              :oo (if oo 1 0)
+;; ;;                              :ooo (if ooo 1 0)
+;; ;;                              :capture capture
+;; ;;                              :promo promo)))
 
-(defparameter mqueue nil)
+;; (defparameter mqueue nil)
 
-(defun pg (&optional (game g))
-  (print-board (game-board game))
-  (format t "State: ~4,'0b (~a), Side: ~a, Enpa: ~a (~a)"
-          (game-state game) (game-state game)
-          (game-side game)
-          (and (game-enpa game)
-               (index-field (game-enpa game))) (game-enpa game)))
+;; (defun pg (&optional (game g))
+;;   (print-board (game-board game))
+;;   (format t "State: ~4,'0b (~a), Side: ~a, Enpa: ~a (~a)"
+;;           (game-state game) (game-state game)
+;;           (game-side game)
+;;           (and (game-enpa game)
+;;                (index-field (game-enpa game))) (game-enpa game)))
 
-(defun m (&rest args)
-  (let* ((moves (apply #'game-parse-san g args))
-         (move (car moves)))
-    (when (> (length moves) 1)
-      (format t "Ambiguous: ~{~A ~}" (mapcar #'(lambda (m)
-                                                 (game-san g m)) moves))
-      (return-from m))
-    (when (zerop (length moves))
-      (format t "Invalid move")
-      (return-from m))
-    (format t "> ~A~%" (game-san g move))
-    (push (list move (game-state g) (game-enpa g)) mqueue)
-    (game-move g move)
-    (pg)
-    move))
+;; (defun m (&rest args)
+;;   (let* ((moves (apply #'game-parse-san g args))
+;;          (move (car moves)))
+;;     (when (> (length moves) 1)
+;;       (format t "Ambiguous: ~{~A ~}" (mapcar #'(lambda (m)
+;;                                                  (game-san g m)) moves))
+;;       (return-from m))
+;;     (when (zerop (length moves))
+;;       (format t "Invalid move")
+;;       (return-from m))
+;;     (format t "> ~A~%" (game-san g move))
+;;     (push (list move (game-state g) (game-enpa g)) mqueue)
+;;     (game-move g move)
+;;     (pg)
+;;     move))
 
-(defun undo ()
-  (destructuring-bind (move state enpa) (pop mqueue)
-    (game-undo-move g move)
-    (setf (game-state g) state
-          (game-enpa g) enpa))
-  (pg))
+;; (defun undo ()
+;;   (destructuring-bind (move state enpa) (pop mqueue)
+;;     (game-undo-move g move)
+;;     (setf (game-state g) state
+;;           (game-enpa g) enpa))
+;;   (pg))
