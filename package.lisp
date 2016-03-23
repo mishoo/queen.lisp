@@ -2,15 +2,14 @@
 
 (defpackage #:cl-chess
   (:use #:cl #:alexandria #:named-readtables #:anaphora)
-  (:export #:syntax
-
-           #:C.QUEEN
-           #:C.ROOK
-           #:C.KNIGHT
-           #:C.BISHOP
-           #:C.PAWN
-           #:C.KING
-           #:C.WHITE
+  (:export #:+QUEEN+
+           #:+ROOK+
+           #:+KNIGHT+
+           #:+BISHOP+
+           #:+PAWN+
+           #:+KING+
+           #:+WHITE+
+           #:+FEN-START+
 
            #:is-pawn?
            #:is-knight?
@@ -68,13 +67,16 @@
            #:game-compute-moves
            #:game-parse-san
            #:game-san
-
-           ;; debug functions
-           #:perft
-           #:divide
+           #:game-board
+           #:game-state
+           #:game-side
+           #:game-enpa
+           #:game-fullmove
+           #:game-halfmove
+           #:draw-by-material?
            ))
 
 (in-package #:cl-chess)
 
-(defreadtable cl-chess:syntax
+(defreadtable cl-chess::syntax
   (:merge :standard))
