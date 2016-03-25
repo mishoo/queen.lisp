@@ -900,20 +900,20 @@
                   (setf capture (logxor it +WHITE+))))
               (read-to)
               (setf promo (read-promo))
-              (loop while (maybe-skip #\# #\+ #\! #\?)))
-          (end-of-file ()))
+              (loop while (maybe-skip #\# #\+ #\! #\?))
 
-        (unless piece
-          (setf piece (logior side +PAWN+)))
+              (unless piece
+                (setf piece (logior side +PAWN+)))
 
-        (when (and (or from-file from-rank)
-                   (not to-file) (not to-rank)) ; only destination is specified
-          (setf to from
-                from nil
-                to-file from-file
-                to-rank from-rank
-                from-file nil
-                from-rank nil)))
+              (when (and (or from-file from-rank)
+                         (not to-file) (not to-rank)) ; only destination is specified
+                (setf to from
+                      from nil
+                      to-file from-file
+                      to-rank from-rank
+                      from-file nil
+                      from-rank nil)))
+          (end-of-file ())))
 
       (loop for m in moves when (matches m) collect m))))
 
