@@ -74,6 +74,8 @@
            #:game-fullmove
            #:game-halfmove
            #:draw-by-material?
+
+           #:parse-pgn
            ))
 
 (in-package #:cl-chess)

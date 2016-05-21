@@ -250,93 +250,78 @@
 (defmethod reset-from-fen ((game game) (in stream))
   (let ((board (game-board game))
         (state 0))
-    (labels ((peek ()
-               (peek-char nil in))
+    (with-parse-stream in
+      (labels ((read-row (row)
+                 (loop for ch = (next)
+                       for col upfrom 0
+                       do (cond
+                            ((find ch "pnkbrqPNKBRQ")
+                             (setf (aref board row col)
+                                   (char-piece ch)))
+                            ((find ch "12345678")
+                             (dotimes (i (- (char-code ch) 48))
+                               (setf (aref board row col) 0)
+                               (incf col))
+                             (decf col))
+                            (t (unget ch)
+                               (return)))))
 
-             (read-row (row)
-               (loop for ch = (read-char in)
-                     for col upfrom 0
-                     do (cond
-                          ((find ch "pnkbrqPNKBRQ")
-                           (setf (aref board row col)
-                                 (char-piece ch)))
-                          ((find ch "12345678")
-                           (dotimes (i (- (char-code ch) 48))
-                             (setf (aref board row col) 0)
-                             (incf col))
-                           (decf col))
-                          (t (unread-char ch in)
-                             (return)))))
+               (read-position ()
+                 (loop for row from 7 downto 0
+                       do (read-row row)
+                          (unless (zerop row)
+                            (skip #\/))))
 
-             (read-position ()
-               (loop for row from 7 downto 0
-                     do (read-row row)
-                        (unless (zerop row)
-                          (skip #\/))))
+               (read-side ()
+                 (case (next)
+                   (#\w (setf (game-side game) +WHITE+))
+                   (#\b (setf (game-side game) +BLACK+))
+                   (otherwise (error "Cannot read playing side"))))
 
-             (read-number ()
-               (loop with n = 0
-                     for ch = (read-char in nil nil)
-                     while ch
-                     for d = (digit-char-p ch)
-                     while d do (setf n (+ d (* n 10)))
-                     finally (unread-char ch in) (return n)))
+               (read-castling ()
+                 (if (eq (peek) #\-)
+                     (next)
+                     (loop while (find (peek) "kqKQ")
+                           do (case (next)
+                                (#\k (setf state (logior state +BLACK-OO+)))
+                                (#\q (setf state (logior state +BLACK-OOO+)))
+                                (#\K (setf state (logior state +WHITE-OO+)))
+                                (#\Q (setf state (logior state +WHITE-OOO+))))))
+                 (setf (game-state game) state))
 
-             (read-side ()
-               (case (read-char in)
-                 (#\w (setf (game-side game) +WHITE+))
-                 (#\b (setf (game-side game) +BLACK+))
-                 (otherwise (error "Cannot read playing side"))))
+               (read-en-passant ()
+                 (if (eq (peek) #\-)
+                     (progn
+                       (next)
+                       (setf (game-enpa game) nil))
+                     (let ((col (next))
+                           (row (next)))
+                       (unless (and (find col "abcdefghABCDEFGH")
+                                    (find row "12345678"))
+                         (error "Invalid en-passant field"))
+                       (setf (game-enpa game)
+                             (board-index (- (char-code row) 49)
+                                          (- (char-code (char-downcase col)) 97))))))
 
-             (read-castling ()
-               (if (char= (peek) #\-)
-                   (read-char in)
-                   (loop while (find (peek) "kqKQ")
-                         do (case (read-char in)
-                              (#\k (setf state (logior state +BLACK-OO+)))
-                              (#\q (setf state (logior state +BLACK-OOO+)))
-                              (#\K (setf state (logior state +WHITE-OO+)))
-                              (#\Q (setf state (logior state +WHITE-OOO+))))))
-               (setf (game-state game) state))
+               (read-halfmove ()
+                 (setf (game-halfmove game) (read-number)))
 
-             (read-en-passant ()
-               (if (char= (peek) #\-)
-                   (progn
-                     (read-char in)
-                     (setf (game-enpa game) nil))
-                   (let ((col (read-char in))
-                         (row (read-char in)))
-                     (unless (and (find col "abcdefghABCDEFGH")
-                                  (find row "12345678"))
-                       (error "Invalid en-passant field"))
-                     (setf (game-enpa game)
-                           (board-index (- (char-code row) 49)
-                                        (- (char-code (char-downcase col)) 97))))))
+               (read-fullmove ()
+                 (setf (game-fullmove game) (read-number))))
 
-             (read-halfmove ()
-               (setf (game-halfmove game) (read-number)))
-
-             (read-fullmove ()
-               (setf (game-fullmove game) (read-number)))
-
-             (skip (ch)
-               (if (char= (peek) ch)
-                   (read-char in)
-                   (error "Expected ~S" ch))))
-
-      ;; now do it
-      (read-position)
-      (skip #\SPACE)
-      (read-side)
-      (skip #\SPACE)
-      (read-castling)
-      (skip #\SPACE)
-      (read-en-passant)
-      (skip #\SPACE)
-      (read-halfmove)
-      (skip #\SPACE)
-      (read-fullmove)
-      game)))
+        ;; now do it
+        (read-position)
+        (skip #\SPACE)
+        (read-side)
+        (skip #\SPACE)
+        (read-castling)
+        (skip #\SPACE)
+        (read-en-passant)
+        (skip #\SPACE)
+        (read-halfmove)
+        (skip #\SPACE)
+        (read-fullmove)
+        game))))
 
 (defmethod reset-from-fen ((game game) (fen string))
   (with-input-from-string (in fen)
@@ -811,109 +796,102 @@
                        (return-from matches (and (eq (move-captured-piece m) capture) m)))
                      (return-from matches m)))))))
 
-      (labels ((peek (&optional (eof-error t))
-                 (peek-char nil in eof-error nil))
+      (with-parse-stream in
+        (labels ((read-piece ()
+                   (let* ((ch (peek))
+                          (p (and ch (char-piece ch))))
+                     (when (and p (or (> (char-code ch) 255)
+                                      (is-white? p)))
+                       (next)
+                       (logior side (logand p +PIECE+)))))
 
-               (next (&optional (eof-error t))
-                 (read-char in eof-error nil))
+                 (read-field ()
+                   (let (file rank)
+                     (setf file (peek))
+                     (if (and file (char<= #\a file #\h))
+                         (progn
+                           (setf file (- (char-code file) 97))
+                           (next))
+                         (setf file nil))
+                     (setf rank (peek))
+                     (if (and rank (char<= #\1 rank #\8))
+                         (progn
+                           (setf rank (- (char-code rank) 49))
+                           (next))
+                         (setf rank nil))
+                     (values file rank)))
 
-               (read-piece ()
-                 (let* ((ch (peek))
-                        (p (char-piece ch)))
-                   (when (and p (or (> (char-code ch) 255)
-                                    (is-white? p)))
+                 (read-from ()
+                   (multiple-value-bind (file rank) (read-field)
+                     (setf from-file file
+                           from-rank rank)
+                     (when (and file rank)
+                       (setf from (board-index rank file)))))
+
+                 (maybe-skip (&rest chars)
+                   (when (member (peek) chars :test #'eq)
+                     (next)))
+
+                 (skip-sep ()
+                   (awhen (maybe-skip #\x #\: #\-)
+                     (when (or (eq it #\x) (eq it #\:))
+                       (setf capture t))))
+
+                 (read-to ()
+                   (multiple-value-bind (file rank) (read-field)
+                     (setf to-file file
+                           to-rank rank)
+                     (when (and file rank)
+                       (setf to (board-index rank file)))))
+
+                 (read-promo ()
+                   (when (eq (peek) #\=)
+                     (next))
+                   (read-piece))
+
+                 (read-castle ()
+                   (when (eq (peek) #\O)
                      (next)
-                     (logior side (logand p +PIECE+)))))
+                     (unless (eq (next) #\-)
+                       (error "Invalid input"))
+                     (unless (eq (next) #\O)
+                       (error "Invalid input"))
+                     (cond
+                       ((eq (peek) #\-)
+                        (next)
+                        (unless (eq (next) #\O)
+                          (error "Invalid input"))
+                        (setf piece (logior +KING+ side)
+                              from  (if white $E1 $E8)
+                              to    (if white $C1 $C8)))
+                       (t
+                        (setf piece (logior +KING+ side)
+                              from  (if white $E1 $E8)
+                              to    (if white $G1 $G8))))
+                     t)))
 
-               (read-field ()
-                 (let (file rank)
-                   (setf file (peek nil))
-                   (if (and file (char<= #\a file #\h))
-                       (progn
-                         (setf file (- (char-code file) 97))
-                         (next))
-                       (setf file nil))
-                   (setf rank (peek nil))
-                   (if (and rank (char<= #\1 rank #\8))
-                       (progn
-                         (setf rank (- (char-code rank) 49))
-                         (next))
-                       (setf rank nil))
-                   (values file rank)))
+          (unless (read-castle)
+            (setf piece (read-piece))
+            (read-from)
+            (skip-sep)
+            (when capture
+              (awhen (read-piece)
+                (setf capture (logxor it +WHITE+))))
+            (read-to)
+            (setf promo (read-promo))
+            (loop while (maybe-skip #\# #\+ #\! #\?))
 
-               (read-from ()
-                 (multiple-value-bind (file rank) (read-field)
-                   (setf from-file file
-                         from-rank rank)
-                   (when (and file rank)
-                     (setf from (board-index rank file)))))
+            (unless piece
+              (setf piece (logior side +PAWN+)))
 
-               (maybe-skip (&rest chars)
-                 (when (member (peek) chars :test #'char=)
-                   (next)))
-
-               (skip-sep ()
-                 (awhen (maybe-skip #\x #\: #\-)
-                   (when (or (char= it #\x) (char= it #\:))
-                     (setf capture t))))
-
-               (read-to ()
-                 (multiple-value-bind (file rank) (read-field)
-                   (setf to-file file
-                         to-rank rank)
-                   (when (and file rank)
-                     (setf to (board-index rank file)))))
-
-               (read-promo ()
-                 (when (char= (peek) #\=)
-                   (next))
-                 (read-piece))
-
-               (read-castle ()
-                 (when (char-equal (peek) #\O)
-                   (next)
-                   (unless (char= (next) #\-)
-                     (error "Invalid input"))
-                   (unless (char-equal (next) #\O)
-                     (error "Invalid input"))
-                   (cond
-                     ((eq (peek nil) #\-)
-                      (next)
-                      (unless (char= (next) #\O)
-                        (error "Invalid input"))
-                      (setf piece (logior +KING+ side)
-                            from  (if white $E1 $E8)
-                            to    (if white $C1 $C8)))
-                     (t
-                      (setf piece (logior +KING+ side)
-                            from  (if white $E1 $E8)
-                            to    (if white $G1 $G8))))
-                   t)))
-
-        (handler-case
-            (unless (read-castle)
-              (setf piece (read-piece))
-              (read-from)
-              (skip-sep)
-              (when capture
-                (awhen (read-piece)
-                  (setf capture (logxor it +WHITE+))))
-              (read-to)
-              (setf promo (read-promo))
-              (loop while (maybe-skip #\# #\+ #\! #\?))
-
-              (unless piece
-                (setf piece (logior side +PAWN+)))
-
-              (when (and (or from-file from-rank)
-                         (not to-file) (not to-rank)) ; only destination is specified
-                (setf to from
-                      from nil
-                      to-file from-file
-                      to-rank from-rank
-                      from-file nil
-                      from-rank nil)))
-          (end-of-file ())))
+            (when (and (or from-file from-rank)
+                       (not to-file) (not to-rank)) ; only destination is specified
+              (setf to from
+                    from nil
+                    to-file from-file
+                    to-rank from-rank
+                    from-file nil
+                    from-rank nil)))))
 
       (loop for m in moves when (matches m) collect m))))
 
