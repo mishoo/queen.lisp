@@ -418,6 +418,7 @@
   (if (move-black? move) +BLACK+ +WHITE+))
 
 (defun move-capture? (move)
+  (declare (type move move))
   (not (zerop (ldb (byte 5 23) move))))
 
 (defun move-captured-piece (move)
@@ -429,6 +430,7 @@
       (t p))))
 
 (defun move-promote? (move)
+  (declare (type move move))
   (not (zerop (ldb (byte 4 19) move))))
 
 (defun move-promoted-piece (move)
