@@ -536,11 +536,10 @@
         ((or (and black (= from $H8)) (and white (= to $H8)))
          (setf state (logxor (logior state +BLACK-OO+) +BLACK-OO+)))))))
 
-(defmethod game-undo-move ((game game) move)
-  (declare (type move move))
-  (setf (game-side game) (move-side move))
-  (let ((board (game-board game))
-        (from (move-from move))
+(defun board-undo-move (board move)
+  (declare (type board board)
+           (type move move))
+  (let ((from (move-from move))
         (to (move-to move))
         (captured (move-captured-piece move))
         (piece (move-piece move))
@@ -583,8 +582,9 @@
          (game-move ,game ,move)
          (unwind-protect
               (progn ,@body)
-           (game-undo-move ,game ,move)
-           (setf (game-state ,game) ,state
+           (board-undo-move (game-board ,game) ,move)
+           (setf (game-side ,game) (move-side ,move)
+                 (game-state ,game) ,state
                  (game-enpa ,game) ,enpa
                  (game-halfmove ,game) ,halfmove
                  (game-fullmove ,game) ,fullmove))))))
@@ -641,9 +641,8 @@
         (check (logior opp +KING+) delta))
       nil)))
 
-(defmethod game-compute-moves ((game game))
-  (let* ((side (game-side game))
-         (opp (logxor side +WHITE+))
+(defmethod game-compute-moves ((game game) &optional (side (game-side game)))
+  (let* ((opp (logxor side +WHITE+))
          (board (game-board game))
          (white (is-white? side))
          (moves '())
@@ -969,6 +968,8 @@
             (return-from draw-by-material? nil))
           (setf has-knights t)))))
     t))
+
+;; EOF - TEST STUFF
 
 (defun perft (game depth)
   (let ((captures 0)

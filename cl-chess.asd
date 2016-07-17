@@ -14,5 +14,6 @@
                (:file "cl-chess")
                (:file "stream")
                (:file "board")
-               (:file "pgn")))
+               (:file "pgn")
+               (:file "eval")))
 

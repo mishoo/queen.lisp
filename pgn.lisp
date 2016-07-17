@@ -26,7 +26,8 @@
                                       "1-0")
                                      ((string= "0-1" str)
                                       "0-1")
-                                     ((string= "1/2" str) (skip "-1/2")
+                                     ((string= "1/2" str)
+                                      (skip "-1/2")
                                       "1/2-1/2"))))))))
 
          (read-moves (game)
