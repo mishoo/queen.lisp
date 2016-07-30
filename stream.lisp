@@ -148,6 +148,7 @@
                              #'skip
                              #'read-string
                              #'skip-whitespace
-                             #'look-ahead))
+                             #'look-ahead
+                             #'read-number))
 
          ,@body))))

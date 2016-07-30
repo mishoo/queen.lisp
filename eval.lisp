@@ -2,7 +2,7 @@
 
 (in-readtable cl-chess::syntax)
 
-(defconstant +MATK+ 20000)
+(defconstant +MATK+ 32000)
 (defconstant +MATQ+ 900)
 (defconstant +MATR+ 500)
 (defconstant +MATB+ 330)
@@ -85,54 +85,147 @@
   (-30 -30   0   0   0   0 -30 -30)
   (-50 -30 -30 -30 -30 -30 -30 -50))
 
-(defun count-pieces (board color)
-  (declare (type board board)
-           (type piece color))
-  (let ((q1 0) (r1 0) (b1 0) (n1 0) (p1 0)
-        (q2 0) (r2 0) (b2 0) (n2 0) (p2 0)
-        (dbl1 0) (dbl2 0)
-        (colpawns1 (make-array 8 :element-type '(unsigned-byte 8) :initial-element 0))
-        (colpawns2 (make-array 8 :element-type '(unsigned-byte 8) :initial-element 0)))
-    (board-foreach board
-                   (lambda (piece row col)
-                     (declare (type piece piece)
-                              (type (unsigned-byte 3) row col)
-                              (ignore row))
-                     (macrolet ((same ()
-                                  `(same-side? piece color)))
-                       (cond
-                         ((is-queen? piece) (if (same) (incf q1) (incf q2)))
-                         ((is-rook? piece) (if (same) (incf r1) (incf r2)))
-                         ((is-bishop? piece) (if (same) (incf b1) (incf b2)))
-                         ((is-knight? piece) (if (same) (incf n1) (incf n2)))
-                         ((is-pawn? piece)
-                          (cond
-                            ((same)
-                             (incf p1)
-                             (when (> (incf (aref colpawns1 col)) 1)
-                               (incf dbl1)))
-                            (t
-                             (incf p2)
-                             (when (> (incf (aref colpawns2 col)) 1)
-                               (incf dbl2)))))))))
-    (values q1 r1 b1 n1 p1
-            q2 r2 b2 n2 p2
-            dbl1 dbl2)))
+(defun piece-value (piece)
+  (case (piece piece)
+    (#.+PAWN+   +MATP+)
+    (#.+KNIGHT+ +MATN+)
+    (#.+BISHOP+ +MATB+)
+    (#.+ROOK+   +MATR+)
+    (#.+QUEEN+  +MATQ+)
+    (#.+KING+   +MATK+)))
+
+(defun get-score (piece row col)
+  (let ((white (is-white? piece)))
+    (unless white
+      (setf row (- 7 row)
+            col (- 7 col)))
+    (case (piece piece)
+      (#.+PAWN+   (+ +MATP+ (aref *p-scores* row col)))
+      (#.+KNIGHT+ (+ +MATN+ (aref *n-scores* row col)))
+      (#.+BISHOP+ (+ +MATB+ (aref *b-scores* row col)))
+      (#.+ROOK+   (+ +MATR+ (aref *r-scores* row col)))
+      (#.+QUEEN+  (+ +MATQ+ (aref *q-scores* row col)))
+      (#.+KING+
+       ;; XXX: handle endgame
+       (+ +MATK+ (aref *k-scores-opening* row col))))))
 
 (defun static-value (game &optional
                             (our-side (game-side game))
-                            (moves (game-compute-moves game)))
-  (when (null moves)
-    ;; we've been checkmated
-    (return-from static-value -10000))
-  (let* ((their-side (logxor our-side +WHITE+))
-         (material (multiple-value-bind (q1 r1 b1 n1 p1
-                                         q2 r2 b2 n2 p2)
-                       (count-pieces game our-side)
-                     (+ (* 9 (- q1 q2))
-                        (* 5 (- r1 r2))
-                        (* 3 (+ (- b1 b2)
-                                (- n1 n2)))
-                        (- p1 p2)))))
+                            ;; (moves (game-compute-moves game our-side))
+                            )
+  (let ((total 0))
+    (board-foreach
+     (game-board game)
+     (lambda (piece row col)
+       (let ((score (get-score piece row col)))
+         (unless (same-side? piece our-side)
+           (setf score (- score)))
+         (incf total score))))
+    total))
 
-    ))
+(defparameter *best-move* nil)
+
+(defparameter +MAX-DEPTH+ 4)
+
+(defun quies-moves (moves)
+  (sort (delete-if-not #'move-capture? moves)
+        (lambda (m1 m2)
+          (let ((p1 (move-piece m1))
+                (p2 (move-piece m2))
+                (c1 (move-captured-piece m1))
+                (c2 (move-captured-piece m2)))
+            (let ((v1 (- (piece-value c1)
+                         (piece-value p1)))
+                  (v2 (- (piece-value c2)
+                         (piece-value p2))))
+              (> v1 v2))))))
+
+(defun quies (game α β &optional moves)
+  (unless (king-index game)
+    (return-from quies -32000))
+  (unless moves
+    (setf moves (game-compute-moves game (game-side game) t)))
+  (let ((score (static-value game)))
+    (when (>= score β)
+      (return-from quies β))
+    (when (> score α)
+      (setf α score))
+    (loop for move in (quies-moves moves)
+          do (with-move (game move)
+               (setf score (- (quies game (- β) (- α)))))
+             (when (>= score β)
+               (return β))
+             (when (> score α)
+               (setf α score))
+          finally (return α))))
+
+(defun pvs (game depth α β)
+  (declare (type game game)
+           (type (unsigned-byte 8) depth)
+           (type (integer -32000 32000) α β))
+  (let ((moves (game-compute-moves game (game-side game)
+                                   (/= depth +MAX-DEPTH+))))
+    (when (= depth +MAX-DEPTH+)
+      (setf *best-move* (car moves)))
+    (cond
+      ((or (zerop depth)
+           (null moves))
+       (quies game α β moves))
+      (t
+       (loop with score = nil for move in moves do
+         (with-move (game move)
+           (cond
+             (score
+              (setf score (- (pvs game (1- depth) (- 0 α 1) (- α))))
+              (when (< α score β)
+                (setf score (- (pvs game (1- depth) (- β) (- score))))))
+             (t
+              (setf score (- (pvs game (1- depth) (- β) (- α)))))))
+         (when (> score α)
+           (setf α score)
+           (when (= depth +MAX-DEPTH+)
+             (setf *best-move* move)))
+         (when (>= α β)
+           (return-from pvs α)))
+       α))))
+
+(defun find-best-move (game)
+  (let ((*best-move* nil))
+    (let ((score (pvs game +MAX-DEPTH+ -32000 +32000)))
+      (values *best-move* score))))
+
+;;; XXX: rest is debug code
+
+(defvar g)
+(setf g (make-instance 'game))
+(reset-game g)
+(defun go! (&optional m)
+  (let ((*unicode* t))
+    (cond
+      (m
+       (let ((moves (game-parse-san g m)))
+         (cond
+           ((= 1 (length moves))
+            (game-move g (car moves)))
+           (t
+            (format t "Ambiguous: ~{~A ~}~%"
+                    (mapcar (lambda (m)
+                              (game-san g m))
+                            moves))))
+         (print-board (game-board g))))
+      (t
+       (let ((m (find-best-move g)))
+         (cond
+           (m
+            (format t "*********** ~A ~A~%" (if (is-white? (game-side g))
+                                                "W:" "B:")
+                    (game-san g m))
+            (game-move g m)
+            (print-board (game-board g)))
+           (t
+            (format t "No moves found~%"))))))))
+
+(defun dump-moves (game &optional (moves (game-compute-moves game)))
+  (format nil "~{~A ~}" (mapcar (lambda (m)
+                                  (game-san game m))
+                                moves)))
