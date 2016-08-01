@@ -148,31 +148,31 @@
 
 (defun is-pawn? (p)
   (declare (type piece p))
-  (not (zerop (logand p +PAWN+))))
+  (logtest p +PAWN+))
 
 (defun is-knight? (p)
   (declare (type piece p))
-  (not (zerop (logand p +KNIGHT+))))
+  (logtest p +KNIGHT+))
 
 (defun is-bishop? (p)
   (declare (type piece p))
-  (not (zerop (logand p +BISHOP+))))
+  (logtest p +BISHOP+))
 
 (defun is-rook? (p)
   (declare (type piece p))
-  (not (zerop (logand p +ROOK+))))
+  (logtest p +ROOK+))
 
 (defun is-queen? (p)
   (declare (type piece p))
-  (not (zerop (logand p +QUEEN+))))
+  (logtest p +QUEEN+))
 
 (defun is-king? (p)
   (declare (type piece p))
-  (not (zerop (logand p +KING+))))
+  (logtest p +KING+))
 
 (defun is-white? (p)
   (declare (type piece p))
-  (not (zerop (logand p +WHITE+))))
+  (logtest p +WHITE+))
 
 (defun is-black? (p)
   (declare (type piece p))
@@ -375,10 +375,10 @@
 (deftype move ()
   '(unsigned-byte 32))
 
-(defun make-move (from to piece &key (enpa 0) (capture 0) (promo 0) (check 0))
+(defun make-move (from to piece &key (enpa 0) (capture 0) (promo 0))
   (declare (type board-index from to)
            (type piece piece promo capture)
-           (type (unsigned-byte 1) enpa check))
+           (type (unsigned-byte 1) enpa))
   (let ((promo (logand promo +PROMOTABLE+))
         (capture (logand capture +CAPTURABLE+))
         (move 0))
@@ -392,7 +392,6 @@
     (setf move (dpb promo (byte 4 19) move))
     (setf move (dpb capture (byte 6 23) move))
     (setf move (dpb enpa (byte 1 29) move))
-    (setf move (dpb check (byte 1 30) move))
     (the move move)))
 
 (defun move-from (move)
@@ -449,6 +448,14 @@
   (declare (type move move)
            (type piece promo))
   (dpb (logand promo +PROMOTABLE+) (byte 4 19) move))
+
+(defun move-set-check (move)
+  (declare (type move move))
+  (dpb 1 (byte 1 30) move))
+
+(defun move-check? (move)
+  (declare (type move move))
+  (zerop (ldb (byte 1 30) move)))
 
 (defun move-enpa? (move)
   (declare (type move move))
@@ -546,8 +553,7 @@
   (let ((from (move-from move))
         (to (move-to move))
         (captured (move-captured-piece move))
-        (piece (move-piece move))
-        (white (move-white? move)))
+        (piece (move-piece move)))
     ;; restore board
     (board-set board from piece)
     (cond
@@ -561,7 +567,7 @@
     (cond
       ((move-oo? move)
        (cond
-         (white
+         ((move-white? move)
           (board-set board $H1 #.(white +ROOK+))
           (board-set board $F1 0))
          (t
@@ -569,7 +575,7 @@
           (board-set board $F8 0))))
       ((move-ooo? move)
        (cond
-         (white
+         ((move-white? move)
           (board-set board $A1 #.(white +ROOK+))
           (board-set board $D1 0))
          (t
@@ -694,10 +700,10 @@
                                             :enpa 1))))))
 
                     (add-promotions (move)
-                      (push (move-set-promoted-piece move +KNIGHT+) moves)
-                      (push (move-set-promoted-piece move +BISHOP+) moves)
-                      (push (move-set-promoted-piece move +ROOK+) moves)
-                      (push (move-set-promoted-piece move +QUEEN+) moves)
+                      (add (move-set-promoted-piece move +KNIGHT+))
+                      (add (move-set-promoted-piece move +BISHOP+))
+                      (add (move-set-promoted-piece move +ROOK+))
+                      (add (move-set-promoted-piece move +QUEEN+))
                       nil)
 
                     (move-knight ()
@@ -755,7 +761,14 @@
                                        (zerop (board-get board to)))))
 
                     (add (move)
-                      (car (push move moves))))
+                      (car (push move moves))
+                      ;; (let ((checks (with-move (game move)
+                      ;;                 (attacked? game))))
+                      ;;   (car (push (if checks
+                      ;;                  (move-set-check move)
+                      ;;                  move)
+                      ;;              moves)))
+                      ))
 
              (case (piece piece)
                (#.+PAWN+   (move-pawn))
