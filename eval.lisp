@@ -128,7 +128,7 @@
 (defparameter +MAX-DEPTH+ 4)
 
 (defun quies-moves (game moves)
-  (sort (delete-if-not (lambda (m)
+  (sort (remove-if-not (lambda (m)
                          (or (move-capture? m)
                              ;; (with-move (game m)
                              ;;  (attacked? game))
@@ -170,10 +170,11 @@
                (setf α score))
           finally (return α))))
 
-(defun pvs (game depth α β)
+(defun pvs (game depth α β pline)
   (declare (type game game)
            (type (unsigned-byte 8) depth)
-           (type (integer -32000 32000) α β))
+           (type (integer -32000 32000) α β)
+           (type cons pline))
   (let ((moves (game-compute-moves game (game-side game)
                                    (/= depth +MAX-DEPTH+))))
     (cond
@@ -181,27 +182,28 @@
            (null moves))
        (quies game α β moves))
       (t
-       (loop with score = nil for move in moves do
-         (with-move (game move)
-           (cond
-             (score
-              (setf score (- (pvs game (1- depth) (- 0 α 1) (- α))))
-              (when (< α score β)
-                (setf score (- (pvs game (1- depth) (- β) (- score))))))
-             (t
-              (setf score (- (pvs game (1- depth) (- β) (- α)))))))
-         (when (> score α)
-           (setf α score)
-           (when (= depth +MAX-DEPTH+)
-             (setf *best-line* move)))
-         (when (>= α β)
-           (return-from pvs α)))
+       (loop with score = nil
+             with line = (cons nil nil)
+             for move in moves do
+               (with-move (game move)
+                 (cond
+                   (score
+                    (setf score (- (pvs game (1- depth) (- 0 α 1) (- α) line)))
+                    (when (< α score β)
+                      (setf score (- (pvs game (1- depth) (- β) (- score) line)))))
+                   (t
+                    (setf score (- (pvs game (1- depth) (- β) (- α) line))))))
+               (when (> score α)
+                 (setf α score)
+                 (setf (car pline) (cons move (car line))))
+               (when (>= α β)
+                 (return-from pvs α)))
        α))))
 
 (defun find-best-move (game)
-  (let ((*best-line* nil))
-    (let ((score (pvs game +MAX-DEPTH+ -32000 +32000)))
-      (values *best-line* score))))
+  (let* ((line (cons nil nil))
+         (score (pvs game +MAX-DEPTH+ -32000 +32000 line)))
+    (values (car line) score)))
 
 ;;; XXX: rest is debug code
 
@@ -223,18 +225,34 @@
                             moves))))
          (print-board (game-board g))))
       (t
-       (let ((m (find-best-move g)))
+       (let* ((line (find-best-move g))
+              (m (car line)))
          (cond
            (m
             (format t "*********** ~A ~A~%" (if (is-white? (game-side g))
                                                 "W:" "B:")
-                    (game-san g m))
+                    (dump-line g line))
             (game-move g m)
             (print-board (game-board g)))
            (t
             (format t "No moves found~%"))))))))
 
+(defun dump-line (game moves)
+  (when moves
+    (concatenate 'string
+                 (game-san game (car moves))
+                 " "
+                 (with-move (game (car moves))
+                   (dump-line game (cdr moves))))))
+
 (defun dump-moves (game &optional (moves (game-compute-moves game)))
   (format nil "~{~A~^ ~}" (mapcar (lambda (m)
-                                    (game-san game m))
-                                  moves)))
+                                    (let* ((before (copy-array (game-board game)))
+                                           (san (game-san game m))
+                                           (after (copy-array (game-board game))))
+                                      (cond
+                                        ((not (equalp before after))
+                                         (format nil "[~A]" san))
+                                        (t
+                                         san))))
+                                  (remove-if #'null moves))))
