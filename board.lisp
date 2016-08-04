@@ -691,10 +691,10 @@
                             (add (make-move from to piece (logior +PAWN+ opp) 1))))))
 
                     (add-promotions (move)
-                      (add (move-set-promoted-piece move +QUEEN+))
-                      (add (move-set-promoted-piece move +ROOK+))
-                      (add (move-set-promoted-piece move +BISHOP+))
                       (add (move-set-promoted-piece move +KNIGHT+))
+                      (add (move-set-promoted-piece move +BISHOP+))
+                      (add (move-set-promoted-piece move +ROOK+))
+                      (add (move-set-promoted-piece move +QUEEN+))
                       nil)
 
                     (move-knight ()

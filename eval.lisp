@@ -9,6 +9,8 @@
 (defconstant +MATN+ 320)
 (defconstant +MATP+ 100)
 
+(defparameter +MAX-DEPTH+ 4)
+
 (defmacro defscore (name &body value)
   `(defparameter ,name
      (make-array '(8 8) :element-type '(byte 8)
@@ -121,70 +123,70 @@
              (decf total score)))))
     total))
 
-(defparameter *best-line* nil)
+(defun move-value (move)
+  (let ((score (piece-value (move-piece move))))
+    (awhen (move-captured-piece move)
+      (setf score (+ 10000 (piece-value it))))
+    (awhen (move-promoted-piece move)
+      (incf score 15000)
+      (incf score (piece-value it)))
+    (when (move-check? move)
+      (incf score 20000))
+    score))
 
-(defparameter +MAX-DEPTH+ 5)
-
-(defun sort-moves (game moves)
+(defun sort-moves (moves)
   (stable-sort moves
                (lambda (m1 m2)
-                 (cond
-                   ((move-check? m1) t)
-                   ((move-check? m2) nil)
-                   ((and (move-capture? m1)
-                         (move-capture? m2))
-                    (let ((p1 (move-piece m1))
-                          (p2 (move-piece m2))
-                          (c1 (move-captured-piece m1))
-                          (c2 (move-captured-piece m2)))
-                      (let ((v1 (- (piece-value c1)
-                                   (piece-value p1)))
-                            (v2 (- (piece-value c2)
-                                   (piece-value p2))))
-                        (> v1 v2))))
-                   ((move-capture? m1) t)
-                   ((move-capture? m2) nil)))))
+                 (> (move-value m1)
+                    (move-value m2)))))
 
-(defun quies-moves (game moves)
-  (remove-if-not (lambda (m)
-                   (or (move-capture? m)
-                       ;; (move-check? m)
-                       ))
-                 (sort-moves game moves)))
+(defun quies-moves (moves)
+  (sort-moves (remove-if-not (lambda (m)
+                               (or (move-capture? m)
+                                   (move-promote? m)
+                                   ;; (move-check? m)
+                                   ))
+                             moves)))
 
-(defun quies (game α β moves)
+(defun quies (game α β moves pline)
   (let ((score (static-value game)))
     (when (>= score β)
       (return-from quies β))
     (when (> score α)
       (setf α score))
-    (loop for move in (quies-moves game moves)
-          do (with-move (game move)
-               (setf score (- (quies game (- β) (- α)
-                                     (game-compute-moves game)))))
-             (when (>= score β)
-               (return β))
-             (when (> score α)
-               (setf α score))
-          finally (return α))))
+    (if (null moves)
+        (if (attacked? game)
+            -15000
+            (- α))
+        (loop for move in (quies-moves moves)
+              for line = (cons nil nil)
+              do (with-move (game move)
+                   (setf score (- (quies game (- β) (- α)
+                                         (game-compute-moves game)
+                                         line))))
+                 (when (>= score β)
+                   (return β))
+                 (when (> score α)
+                   (setf α score)
+                   (setf (car pline) (cons move (car line))))
+              finally (return α)))))
 
 (defun pvs (game depth α β pline)
   (declare (type game game)
            (type (unsigned-byte 8) depth)
            (type (integer -32000 32000) α β)
            (type cons pline))
-  (let ((moves (sort-moves game (game-compute-moves game))))
+  (let ((moves (sort-moves (game-compute-moves game))))
     (cond
       ((null moves)
-       (pop (car pline))
        (if (attacked? game)
            -15000
            (- (static-value game))))
       ((zerop depth)
-       (quies game α β moves))
+       (quies game α β moves pline))
       (t
        (loop with score = nil
-             with line = (cons nil nil)
+             for line = (cons nil nil)
              for move in moves do
                (with-move (game move)
                  (cond
@@ -226,17 +228,22 @@
                             moves))))
          (print-board (game-board g))))
       (t
-       (let* ((line (find-best-move g))
-              (m (car line)))
-         (cond
-           (m
-            (format t "*********** ~A ~A~%" (if (is-white? (game-side g))
-                                                "W:" "B:")
-                    (dump-line g line))
-            (game-move g m)
-            (print-board (game-board g)))
-           (t
-            (format t "No moves found~%"))))))))
+       (multiple-value-bind (line score) (find-best-move g)
+         (let ((m (car line)))
+           (cond
+             (m
+              (format t "*********** ~A ~A ~A~%" (if (is-white? (game-side g))
+                                                     "W:" "B:")
+                      (dump-line g line)
+                      m)
+              (format t "~A~%" (let ((*unicode* nil))
+                                 (game-fen g)))
+              (game-move g m)
+              (print-board (game-board g))
+              (format t "~A~%" (let ((*unicode* nil))
+                                 (game-fen g))))
+             (t
+              (format t "No moves found~%")))))))))
 
 (defun dump-line (game moves)
   (when moves
