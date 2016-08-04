@@ -50,7 +50,7 @@
 
   (defun board-index (row col)
     (declare (type (integer 0 7) row col))
-    (the board-index (logior col (ash row 4))))
+    (dpb row (byte 3 4) col))
 
   (defun field-index (field)
     (declare (type (simple-string 2) field))
@@ -67,11 +67,11 @@
 
 (defun index-row (index)
   (declare (type board-index index))
-  (ash (logand #x70 index) -4))
+  (ldb (byte 3 4) index))
 
 (defun index-col (index)
   (declare (type board-index index))
-  (logand #x07 index))
+  (ldb (byte 3 0) index))
 
 (defmacro with-row-col ((index row col) &body body)
   (once-only (index)
@@ -379,8 +379,7 @@
   (declare (type board-index from to)
            (type piece piece capture)
            (type (unsigned-byte 1) enpa))
-  (let ((capture (logand capture +CAPTURABLE+))
-        (move 0))
+  (let ((move 0))
     (setf move (dpb (index-col from) (byte 3 0) move))
     (setf move (dpb (index-row from) (byte 3 3) move))
     (setf move (dpb (index-col to) (byte 3 6) move))
@@ -404,21 +403,21 @@
   (declare (type move move))
   (ldb (byte 7 12) move))
 
-(defun move-black? (move)
-  (declare (type move move))
-  (zerop (ldb (byte 1 18) move)))
-
 (defun move-white? (move)
   (declare (type move move))
-  (not (move-black? move)))
+  (ldb-test (byte 1 18) move))
+
+(defun move-black? (move)
+  (declare (type move move))
+  (not (move-white? move)))
 
 (defun move-side (move)
   (declare (type move move))
-  (if (move-black? move) +BLACK+ +WHITE+))
+  (ash (ldb (byte 1 18) move) 6))
 
 (defun move-capture? (move)
   (declare (type move move))
-  (not (zerop (ldb (byte 6 23) move))))
+  (ldb-test (byte 6 23) move))
 
 (defun move-captured-piece (move)
   (declare (type move move))
@@ -430,7 +429,7 @@
 
 (defun move-promote? (move)
   (declare (type move move))
-  (not (zerop (ldb (byte 4 19) move))))
+  (ldb-test (byte 4 19) move))
 
 (defun move-promoted-piece (move)
   (declare (type move move))
@@ -443,7 +442,7 @@
 (defun move-set-promoted-piece (move promo)
   (declare (type move move)
            (type piece promo))
-  (dpb (logand promo +PROMOTABLE+) (byte 4 19) move))
+  (dpb promo (byte 4 19) move))
 
 (defun move-set-check (move)
   (declare (type move move))
@@ -451,11 +450,11 @@
 
 (defun move-check? (move)
   (declare (type move move))
-  (zerop (ldb (byte 1 30) move)))
+  (ldb-test (byte 1 30) move))
 
 (defun move-enpa? (move)
   (declare (type move move))
-  (not (zerop (ldb (byte 1 29) move))))
+  (ldb-test (byte 1 29) move))
 
 (defun move-captured-index (move)
   (declare (type move move))
@@ -649,11 +648,9 @@
           (check (logior opp +KING+) delta))
         nil))))
 
-(defmethod game-compute-moves ((game game)
-                               &optional
-                                 (side (game-side game))
-                                 capture-king)
-  (let* ((opp (logxor side +WHITE+))
+(defmethod game-compute-moves ((game game))
+  (let* ((side (game-side game))
+         (opp (logxor side +WHITE+))
          (board (game-board game))
          (white (is-white? side))
          (moves '())
@@ -694,10 +691,10 @@
                             (add (make-move from to piece (logior +PAWN+ opp) 1))))))
 
                     (add-promotions (move)
-                      (add (move-set-promoted-piece move +KNIGHT+))
-                      (add (move-set-promoted-piece move +BISHOP+))
-                      (add (move-set-promoted-piece move +ROOK+))
                       (add (move-set-promoted-piece move +QUEEN+))
+                      (add (move-set-promoted-piece move +ROOK+))
+                      (add (move-set-promoted-piece move +BISHOP+))
+                      (add (move-set-promoted-piece move +KNIGHT+))
                       nil)
 
                     (move-knight ()
@@ -755,14 +752,7 @@
                                        (zerop (board-get board to)))))
 
                     (add (move)
-                      (car (push move moves))
-                      ;; (let ((checks (with-move (game move)
-                      ;;                 (attacked? game))))
-                      ;;   (car (push (if checks
-                      ;;                  (move-set-check move)
-                      ;;                  move)
-                      ;;              moves)))
-                      ))
+                      (car (push move moves))))
 
              (case (piece piece)
                (#.+PAWN+   (move-pawn))
@@ -772,15 +762,19 @@
                (#.+QUEEN+  (move-queen))
                (#.+KING+   (move-king))))))))
 
-    (if (or capture-king (null my-king))
-        moves
-        (delete-if (lambda (m)
-                     (with-move (game m)
-                       (let ((index (if (is-king? (move-piece m))
-                                        (move-to m)
-                                        my-king)))
-                         (attacked? game side index))))
-                   moves))))
+    (loop with ret = (list)
+          with opp-king = (king-index game opp)
+          finally (return ret)
+          for m in moves do
+            (with-move (game m)
+              (let ((index (if (is-king? (move-piece m))
+                               (move-to m)
+                               my-king)))
+                (unless (attacked? game side index)
+                  (push (if (attacked? game opp opp-king)
+                            (move-set-check m)
+                            m)
+                        ret)))))))
 
 (defmethod game-parse-san ((game game) (in stream)
                            &optional (moves (game-compute-moves game)))
@@ -993,7 +987,8 @@
   (let ((captures 0)
         (enpa 0)
         (castles 0)
-        (promotions 0))
+        (promotions 0)
+        (checks 0))
     (labels ((rec (depth)
                (if (zerop depth)
                    1
@@ -1006,11 +1001,13 @@
                            do (incf castles)
                          when (and (= depth 1) (move-promote? m))
                            do (incf promotions)
+                         when (and (= depth 1) (move-check? m))
+                           do (incf checks)
                          summing (with-move (game m) (rec (1- depth)))))))
       (let ((count (rec depth)))
-        (format t "Depth: ~D, Count: ~D, Captures: ~D, Enpa: ~D, Promo: ~D, Castle: ~D~%"
-                depth count captures enpa promotions castles)
-        (values count captures enpa castles promotions)))))
+        (format t "Depth: ~D, Count: ~D, Captures: ~D, Enpa: ~D, Checks: ~D, Promo: ~D, Castle: ~D~%"
+                depth count captures enpa checks promotions castles)
+        (values count captures enpa checks castles promotions)))))
 
 (defun divide (game depth)
   (loop with moves = (game-compute-moves game)
