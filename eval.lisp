@@ -9,7 +9,7 @@
 (defconstant +MATN+ 320)
 (defconstant +MATP+ 100)
 
-(defparameter +MAX-DEPTH+ 4)
+(defparameter +MAX-DEPTH+ 5)
 
 (defmacro defscore (name &body value)
   `(defparameter ,name
@@ -97,19 +97,18 @@
     (#.+KING+   +MATK+)))
 
 (defun get-score (piece row col)
-  (let ((white (is-white? piece)))
-    (unless white
-      (setf row (- 7 row)
-            col (- 7 col)))
-    (case (piece piece)
-      (#.+PAWN+   (+ +MATP+ (aref *p-scores* row col)))
-      (#.+KNIGHT+ (+ +MATN+ (aref *n-scores* row col)))
-      (#.+BISHOP+ (+ +MATB+ (aref *b-scores* row col)))
-      (#.+ROOK+   (+ +MATR+ (aref *r-scores* row col)))
-      (#.+QUEEN+  (+ +MATQ+ (aref *q-scores* row col)))
-      (#.+KING+
-       ;; XXX: handle endgame
-       (+ +MATK+ (aref *k-scores-opening* row col))))))
+  (unless (is-white? piece)
+    (setf row (- 7 row)
+          col (- 7 col)))
+  (case (piece piece)
+    (#.+PAWN+   (+ +MATP+ (aref *p-scores* row col)))
+    (#.+KNIGHT+ (+ +MATN+ (aref *n-scores* row col)))
+    (#.+BISHOP+ (+ +MATB+ (aref *b-scores* row col)))
+    (#.+ROOK+   (+ +MATR+ (aref *r-scores* row col)))
+    (#.+QUEEN+  (+ +MATQ+ (aref *q-scores* row col)))
+    (#.+KING+
+     ;; XXX: handle endgame
+     (+ +MATK+ (aref *k-scores-opening* row col)))))
 
 (defun static-value (game)
   (let ((total 0)
@@ -128,8 +127,7 @@
     (awhen (move-captured-piece move)
       (setf score (+ 10000 (piece-value it))))
     (awhen (move-promoted-piece move)
-      (incf score 15000)
-      (incf score (piece-value it)))
+      (incf score (+ 15000 (piece-value it))))
     (when (move-check? move)
       (incf score 20000))
     score))
@@ -203,9 +201,9 @@
                  (return-from pvs α)))
        α))))
 
-(defun find-best-move (game)
+(defun find-best-move (game &optional (depth +MAX-DEPTH+))
   (let* ((line (cons nil nil))
-         (score (pvs game +MAX-DEPTH+ -32000 +32000 line)))
+         (score (pvs game depth -32000 +32000 line)))
     (values (car line) score)))
 
 ;;; XXX: rest is debug code

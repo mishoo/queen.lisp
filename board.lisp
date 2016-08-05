@@ -20,6 +20,47 @@
 
 (defparameter *unicode* nil)
 
+(declaim (inline piece
+                 piece-side
+                 index-valid?
+                 white
+                 board-index
+                 field-index
+                 index-field
+                 index-row
+                 index-col
+                 is-pawn?
+                 is-knight?
+                 is-bishop?
+                 is-rook?
+                 is-queen?
+                 is-king?
+                 is-black?
+                 is-white?
+                 same-side?
+                 opp-side?
+                 board-get
+                 board-set
+                 make-move
+                 move-from
+                 move-to
+                 move-piece
+                 move-white?
+                 move-black?
+                 move-side
+                 move-capture?
+                 move-captured-piece
+                 move-promote?
+                 move-promoted-piece
+                 move-set-promoted-piece
+                 move-check?
+                 move-set-check
+                 move-enpa?
+                 move-captured-index
+                 move-oo?
+                 move-ooo?
+                 move-castle?))
+
 (deftype piece ()
   '(unsigned-byte 7))
 
@@ -30,6 +71,7 @@
   '(array piece (8 8)))
 
 (defun piece (p)
+  (declare (type piece p))
   (logand p +PIECE+))
 
 (defun piece-side (p)
@@ -386,8 +428,7 @@
     (setf move (dpb (index-row to) (byte 3 9) move))
     (setf move (dpb piece (byte 7 12) move))
     (setf move (dpb capture (byte 6 23) move))
-    (setf move (dpb enpa (byte 1 29) move))
-    (the move move)))
+    (setf move (dpb enpa (byte 1 29) move))))
 
 (defun move-from (move)
   (declare (type move move))
@@ -463,7 +504,9 @@
      (board-index (ldb (byte 3 3) move)
                   (ldb (byte 3 6) move)))
     ((move-capture? move)
-     (move-to move))))
+     (move-to move))
+    (t
+     (error "Not a capturing move"))))
 
 (defun move-oo? (move)
   (declare (type move move))
@@ -483,11 +526,11 @@
        (= 2 (abs (- (move-from move)
                     (move-to move))))))
 
-
 ;;; move execution
 
-(defmethod game-move ((game game) move)
-  (declare (type move move))
+(defun game-move (game move)
+  (declare (type game game)
+           (type move move))
   (let ((board (game-board game))
         (from (move-from move))
         (to (move-to move))
@@ -602,7 +645,8 @@
 (defparameter +MOVES-ROOK+   '(1 16 -16 -1))
 (defparameter +MOVES-QING+   `(,@+MOVES-BISHOP+ ,@+MOVES-ROOK+))
 
-(defmethod king-index ((game game) &optional (side (game-side game)))
+(defun king-index (game &optional (side (game-side game)))
+  (declare (type game game))
   (let ((king (logior +KING+ side)))
     (board-foreach
      (game-board game)
@@ -610,45 +654,51 @@
        (when (= p king)
          (return-from king-index (board-index row col)))))))
 
-(defmethod attacked? ((game game) &optional
-                                    (side (game-side game))
-                                    (index (king-index game side)))
-  (declare (type (or null board-index) index))
-  (when index
-    (let* ((board (game-board game))
-           (opp (logxor side +WHITE+)))
-      (labels ((test (p piece)
-                 (when (and (same-side? p opp)
-                            (= p (logand p piece)))
-                   (return-from attacked? t)))
-               (check (piece delta)
-                 (let ((pos (+ index delta)))
-                   (when (index-valid? pos)
-                     (with-piece (board pos p)
-                       (test p piece)))))
-               (repeat (piece delta)
-                 (loop for pos = (+ index delta) then (+ pos delta)
-                       while (index-valid? pos)
-                       do (with-piece (board pos p)
-                            (test p piece)
-                            (return)))))
-        (cond ((is-white? opp)
-               (check (white +PAWN+) -15)
-               (check (white +PAWN+) -17))
-              (t
-               (check +PAWN+ +15)
-               (check +PAWN+ +17)))
-        (loop for delta in +MOVES-KNIGHT+ do
-          (check (logior opp +KNIGHT+) delta))
-        (loop for delta in +MOVES-BISHOP+ do
-          (repeat (logior opp +BISHOP+ +QUEEN+) delta))
-        (loop for delta in +MOVES-ROOK+ do
-          (repeat (logior opp +ROOK+ +QUEEN+) delta))
-        (loop for delta in +MOVES-QING+ do
-          (check (logior opp +KING+) delta))
-        nil))))
+(defun attacked? (game &optional
+                         (side (game-side game))
+                         (index (king-index game side)))
+  (declare (type game game)
+           (type board-index index))
+  (let* ((board (game-board game))
+         (opp (logxor side +WHITE+)))
+    (labels ((test (p piece)
+               (when (and (same-side? p opp)
+                          (= p (logand p piece)))
+                 (return-from attacked? t)))
+             (check (piece delta)
+               (let ((pos (+ index delta)))
+                 (when (index-valid? pos)
+                   (with-piece (board pos p)
+                     (test p piece)))))
+             (repeat (piece delta)
+               (loop for pos = (+ index delta) then (+ pos delta)
+                     while (index-valid? pos)
+                     do (with-piece (board pos p)
+                          (test p piece)
+                          (return)))))
+      (declare (inline test check repeat))
+      (cond ((is-white? opp)
+             (check #.(white +PAWN+) -15)
+             (check #.(white +PAWN+) -17))
+            (t
+             (check +PAWN+ +15)
+             (check +PAWN+ +17)))
+      (loop with piece = (logior opp +KNIGHT+)
+            for delta in +MOVES-KNIGHT+
+            do (check piece delta))
+      (loop with piece = (logior opp +BISHOP+ +QUEEN+)
+            for delta in +MOVES-BISHOP+
+            do (repeat piece delta))
+      (loop with piece = (logior opp +ROOK+ +QUEEN+)
+            for delta in +MOVES-ROOK+
+            do (repeat piece delta))
+      (loop with piece = (logior opp +KING+)
+            for delta in +MOVES-QING+
+            do (check piece delta))
+      nil)))
 
-(defmethod game-compute-moves ((game game))
+(defun game-compute-moves (game)
+  (declare (type game game))
   (let* ((side (game-side game))
          (opp (logxor side +WHITE+))
          (board (game-board game))
@@ -667,6 +717,7 @@
                                  (if (and on-end move)
                                      (add-promotions (pop moves))
                                      move)))
+                          (declare (inline try-promo))
                           (cond (white
                                  (unless (try-promo (move +15 t))
                                    (try-enpa +15))
@@ -715,16 +766,16 @@
                         (cond
                           (white
                            (when (logtest (game-state game) +WHITE-OO+)
-                             (try-castle $G1 $F1))
+                             (try-castle '($G1 $F1)))
                            (when (logtest (game-state game) +WHITE-OOO+)
-                             (try-castle $C1 $D1 $B1)))
+                             (try-castle '($C1 $D1 $B1))))
                           (t
                            (when (logtest (game-state game) +BLACK-OO+)
-                             (try-castle $G8 $F8))
+                             (try-castle '($G8 $F8)))
                            (when (logtest (game-state game) +BLACK-OOO+)
-                             (try-castle $C8 $D8 $B8))))))
+                             (try-castle '($C8 $D8 $B8)))))))
 
-                    (try-castle (&rest targets)
+                    (try-castle (targets)
                       (loop for index in targets
                             unless (zerop (board-get board index))
                               do (return-from try-castle nil))
