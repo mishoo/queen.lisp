@@ -40,7 +40,9 @@
                  same-side?
                  opp-side?
                  board-get
+                 board-get-rc
                  board-set
+                 board-set-rc
                  make-move
                  move-from
                  move-to
@@ -62,13 +64,13 @@
                  move-castle?))
 
 (deftype piece ()
-  '(unsigned-byte 7))
+  '(unsigned-byte 8))
 
 (deftype board-index ()
-  '(and unsigned-byte (satisfies index-valid?)))
+  '(integer 0 119))
 
 (deftype board ()
-  '(array piece (8 8)))
+  '(simple-array piece (120)))
 
 (defun piece (p)
   (declare (type piece p))
@@ -83,6 +85,8 @@
     (coerce chars 'string))
 
   (defun index-valid? (index)
+    (declare (optimize speed)
+             (type fixnum index))
     (and (typep index '(unsigned-byte 8))
          (zerop (logand index #x88))))
 
@@ -91,8 +95,9 @@
     (logior p +WHITE+))
 
   (defun board-index (row col)
-    (declare (type (integer 0 7) row col))
-    (dpb row (byte 3 4) col))
+    (declare (optimize speed)
+             (type (integer 0 7) row col))
+    (the board-index (dpb row (byte 3 4) col)))
 
   (defun field-index (field)
     (declare (type (simple-string 2) field))
@@ -228,18 +233,31 @@
   (declare (type piece p1 p2))
   (not (same-side? p1 p2)))
 
+(defun board-get-rc (board row col)
+  (declare (optimize speed)
+           (type board board)
+           (type (unsigned-byte 3) row col))
+  (aref board (board-index row col)))
+
+(defun board-set-rc (board row col piece)
+  (declare (optimize speed)
+           (type board board)
+           (type (unsigned-byte 3) row col)
+           (type piece piece))
+  (setf (aref board (board-index row col)) piece))
+
 (defun board-get (board index)
-  (declare (type board board)
+  (declare (optimize speed)
+           (type board board)
            (type board-index index))
-  (with-row-col (index row col)
-    (aref board row col)))
+  (aref board index))
 
 (defun board-set (board index val)
-  (declare (type board board)
+  (declare (optimize speed)
+           (type board board)
            (type board-index index)
-           (type unsigned-byte val))
-  (with-row-col (index row col)
-    (setf (aref board row col) val)))
+           (type piece val))
+  (setf (aref board index) val))
 
 (defsetf board-get board-set)
 
@@ -252,21 +270,21 @@
                ,@body)))))
 
 (defun make-board ()
-  (make-array '(8 8) :element-type 'piece :initial-element 0))
+  (make-array 120 :element-type 'piece :initial-element 0))
 
 (defun board-foreach (board fn)
   (declare (type board board)
            (type (function (piece (unsigned-byte 3) (unsigned-byte 3)) t) fn))
   (loop for row from 0 to 7 do
     (loop for col from 0 to 7
-          for piece = (aref board row col)
+          for piece = (board-get-rc board row col)
           when (not (zerop piece))
             do (funcall fn piece row col))))
 
 (defun print-board (board &key (output t))
   (loop for row from 7 downto 0
         for line = (loop for col from 0 to 7
-                         collect (piece-char (aref board row col)))
+                         collect (piece-char (board-get-rc board row col)))
         do (format output "~D │ ~{~A ~}~%" (+ row 1) line))
   (format output "  └─────────────────~%")
   (format output "    a b c d e f g h~%"))
@@ -301,11 +319,10 @@
                        for col upfrom 0
                        do (cond
                             ((find ch "pnkbrqPNKBRQ")
-                             (setf (aref board row col)
-                                   (char-piece ch)))
+                             (board-set-rc board row col (char-piece ch)))
                             ((find ch "12345678")
                              (dotimes (i (- (char-code ch) 48))
-                               (setf (aref board row col) 0)
+                               (board-set-rc board row col 0)
                                (incf col))
                              (decf col))
                             (t (unget ch)
@@ -383,7 +400,7 @@
       (loop for row from 7 downto 0
             do (loop with empty = 0
                      for col from 0 to 7
-                     for p = (aref board row col)
+                     for p = (board-get-rc board row col)
                      do (cond
                           ((zerop p) (incf empty))
                           (t
@@ -657,7 +674,9 @@
 (defun attacked? (game &optional
                          (side (game-side game))
                          (index (king-index game side)))
-  (declare (type game game)
+  (declare (optimize speed)
+           (type piece side)
+           (type game game)
            (type board-index index))
   (let* ((board (game-board game))
          (opp (logxor side +WHITE+)))
@@ -666,12 +685,16 @@
                           (= p (logand p piece)))
                  (return-from attacked? t)))
              (check (piece delta)
+               (declare (type piece piece)
+                        (type fixnum delta))
                (let ((pos (+ index delta)))
                  (when (index-valid? pos)
                    (with-piece (board pos p)
                      (test p piece)))))
              (repeat (piece delta)
-               (loop for pos = (+ index delta) then (+ pos delta)
+               (declare (type fixnum delta))
+               (loop for pos = (the fixnum (+ index delta))
+                       then (the fixnum (+ pos delta))
                      while (index-valid? pos)
                      do (with-piece (board pos p)
                           (test p piece)
@@ -698,8 +721,9 @@
       nil)))
 
 (defun game-compute-moves (game)
-  (declare (type game game))
-  (let* ((side (game-side game))
+  (declare (optimize speed)
+           (type game game))
+  (let* ((side (the piece (game-side game)))
          (opp (logxor side +WHITE+))
          (board (game-board game))
          (white (is-white? side))
@@ -738,7 +762,7 @@
                     (try-enpa (delta)
                       (when enpa
                         (let ((to (+ from delta)))
-                          (when (= to enpa)
+                          (when (= to (the board-index enpa))
                             (add (make-move from to piece (logior +PAWN+ opp) 1))))))
 
                     (add-promotions (move)
@@ -784,6 +808,7 @@
                         (add (make-move from (car targets) piece 0 0))))
 
                     (%move (to &optional capture no-capture)
+                      (declare (type fixnum to))
                       (when (index-valid? to)
                         (with-piece (board to p t)
                           (unless (and capture (zerop p))
@@ -794,10 +819,13 @@
                                 (add (make-move from to piece p 0))))))))
 
                     (move (delta &optional capture no-capture)
+                      (declare (type fixnum delta))
                       (%move (+ from delta) capture no-capture))
 
                     (repeat (delta)
-                      (loop for to = (+ from delta) then (+ to delta)
+                      (declare (type fixnum delta))
+                      (loop for to = (the fixnum (+ from delta))
+                              then (the fixnum (+ to delta))
                             do (%move to)
                             while (and (index-valid? to)
                                        (zerop (board-get board to)))))
