@@ -244,12 +244,20 @@
               (format t "No moves found~%")))))))))
 
 (defun dump-line (game moves)
-  (when moves
-    (concatenate 'string
-                 (game-san game (car moves))
-                 " "
-                 (with-move (game (car moves))
-                   (dump-line game (cdr moves))))))
+  (with-output-to-string (out)
+    (labels ((rec (moves first)
+               (when moves
+                 (let ((move (car moves)))
+                   (when (or first (move-white? move))
+                     (unless first
+                       (write-char #\SPACE out))
+                     (format out "~D." (game-fullmove game)))
+                   (when (and first (move-black? move))
+                     (format out ".."))
+                   (format out " ~A" (game-san game move))
+                   (with-move (game move)
+                     (rec (cdr moves) nil))))))
+      (rec moves t))))
 
 (defun dump-moves (game &optional (moves (game-compute-moves game)))
   (format nil "~{~A~^ ~}" (mapcar (lambda (m)
