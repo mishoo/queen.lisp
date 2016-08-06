@@ -115,7 +115,8 @@
         (our-side (game-side game)))
     (board-foreach
      (game-board game)
-     (lambda (piece row col)
+     (lambda (piece row col index)
+       (declare (ignore index))
        (let ((score (get-score piece row col)))
          (if (same-side? piece our-side)
              (incf total score)
@@ -158,7 +159,7 @@
             (- α))
         (loop for move in (quies-moves moves)
               for line = (cons nil nil)
-              do (with-move (game move)
+              do (with-move (game move t)
                    (setf score (- (quies game (- β) (- α)
                                          (game-compute-moves game)
                                          line))))
@@ -186,7 +187,7 @@
        (loop with score = nil
              for line = (cons nil nil)
              for move in moves do
-               (with-move (game move)
+               (with-move (game move t)
                  (cond
                    (score
                     (setf score (- (pvs game (1- depth) (- 0 α 1) (- α) line)))

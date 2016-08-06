@@ -274,12 +274,13 @@
 
 (defun board-foreach (board fn)
   (declare (type board board)
-           (type (function (piece (unsigned-byte 3) (unsigned-byte 3)) t) fn))
+           (type (function (piece (unsigned-byte 3) (unsigned-byte 3) board-index) t) fn))
   (loop for row from 0 to 7 do
     (loop for col from 0 to 7
-          for piece = (board-get-rc board row col)
+          for index = (board-index row col)
+          for piece = (board-get board index)
           when (not (zerop piece))
-            do (funcall fn piece row col))))
+            do (funcall fn piece row col index))))
 
 (defun print-board (board &key (output t))
   (loop for row from 7 downto 0
@@ -302,8 +303,8 @@
    (state :type (unsigned-byte 32) :initarg :state :accessor game-state)
    (side :type (unsigned-byte 8) :initarg :side :accessor game-side)
    (enpa :type (or board-index null) :initarg :enpa :accessor game-enpa)
-   (fullmove :type unsigned-byte :initarg :fullmove :accessor game-fullmove)
-   (halfmove :type unsigned-byte :initarg :halfmove :accessor game-halfmove))
+   (fullmove :type (unsigned-byte 32) :initarg :fullmove :accessor game-fullmove)
+   (halfmove :type (unsigned-byte 32) :initarg :halfmove :accessor game-halfmove))
   (:default-initargs :board (make-board)
                      :state (logior +WHITE-OO+ +WHITE-OOO+ +BLACK-OO+ +BLACK-OOO+)
                      :side +WHITE+
@@ -527,26 +528,24 @@
 
 (defun move-oo? (move)
   (declare (type move move))
-  (and (is-king? (move-piece move))
-       (= 2 (- (move-to move)
-               (move-from move)))))
+  (= (logand move #b0111111000111000111)
+     #||#         #b0100000000110000100))
 
 (defun move-ooo? (move)
   (declare (type move move))
-  (and (is-king? (move-piece move))
-       (= 2 (- (move-from move)
-               (move-to move)))))
+  (= (logand move #b0111111000111000111)
+     #||#         #b0100000000010000100))
 
 (defun move-castle? (move)
   (declare (type move move))
-  (and (is-king? (move-piece move))
-       (= 2 (abs (- (move-from move)
-                    (move-to move))))))
+  (= (logand move #b0111111000011000111)
+     #||#         #b0100000000010000100))
 
 ;;; move execution
 
-(defun game-move (game move)
-  (declare (type game game)
+(defun game-move (game move &optional quick)
+  (declare (optimize speed)
+           (type game game)
            (type move move))
   (let ((board (game-board game))
         (from (move-from move))
@@ -580,15 +579,18 @@
        (board-set board (move-captured-index move) 0)))
     ;; update game state
     (with-slots (state enpa side halfmove fullmove) game
+      (declare (type (unsigned-byte 32) fullmove halfmove)
+               (type (unsigned-byte 32) state))
       (setf side (if white +BLACK+ +WHITE+)
             enpa (when (and (is-pawn? piece)
                             (= (abs (- from to)) 32))
                    (ash (+ from to) -1)))
-      (unless white
-        (incf fullmove))
-      (if (or (is-pawn? piece) (move-capture? move))
-          (setf halfmove 0)
-          (incf halfmove))
+      (unless quick
+        (unless white
+          (incf fullmove))
+        (if (or (is-pawn? piece) (move-capture? move))
+            (setf halfmove 0)
+            (incf halfmove)))
       (cond
         ((is-king? piece)
          (let ((castle (if white +WHITE-CASTLE+ +BLACK-CASTLE+)))
@@ -603,7 +605,8 @@
          (setf state (logxor (logior state +BLACK-OO+) +BLACK-OO+)))))))
 
 (defun board-undo-move (board move)
-  (declare (type board board)
+  (declare (optimize speed)
+           (type board board)
            (type move move))
   (let ((from (move-from move))
         (to (move-to move))
@@ -637,23 +640,25 @@
           (board-set board $A8 +ROOK+)
           (board-set board $D8 0)))))))
 
-(defmacro with-move ((game move) &body body)
+(defmacro with-move ((game move &optional quick) &body body)
   (once-only (game move)
     (with-gensyms (state enpa halfmove fullmove side)
       `(let ((,state (game-state ,game))
              (,enpa (game-enpa ,game))
-             (,halfmove (game-halfmove ,game))
-             (,fullmove (game-fullmove ,game))
-             (,side (game-side ,game)))
-         (game-move ,game ,move)
+             (,side (game-side ,game))
+             ,@(unless quick
+                 `((,halfmove (game-halfmove ,game))
+                   (,fullmove (game-fullmove ,game)))))
+         (game-move ,game ,move ,quick)
          (unwind-protect
               (progn ,@body)
            (board-undo-move (game-board ,game) ,move)
            (setf (game-side ,game) ,side
                  (game-state ,game) ,state
                  (game-enpa ,game) ,enpa
-                 (game-halfmove ,game) ,halfmove
-                 (game-fullmove ,game) ,fullmove))))))
+                 ,@(unless quick
+                     `((game-halfmove ,game) ,halfmove
+                       (game-fullmove ,game) ,fullmove))))))))
 
 ;;; move generation
 
@@ -667,9 +672,10 @@
   (let ((king (logior +KING+ side)))
     (board-foreach
      (game-board game)
-     (lambda (p row col)
+     (lambda (p row col index)
+       (declare (ignore row col))
        (when (= p king)
-         (return-from king-index (board-index row col)))))))
+         (return-from king-index index))))))
 
 (defun attacked? (game &optional
                          (side (game-side game))
@@ -732,120 +738,122 @@
          (my-king (king-index game side)))
     (board-foreach
      (game-board game)
-     (lambda (piece row col)
+     (lambda (piece row col from)
+       (declare (type (unsigned-byte 3) row col)
+                (type board-index from)
+                (ignore col))
        (when (same-side? piece side)
-         (let ((from (board-index row col)))
-           (labels ((move-pawn ()
-                      (let ((on-end (= row (if white 6 1))))
-                        (flet ((try-promo (move)
-                                 (if (and on-end move)
-                                     (add-promotions (pop moves))
-                                     move)))
-                          (declare (inline try-promo))
-                          (cond (white
-                                 (unless (try-promo (move +15 t))
-                                   (try-enpa +15))
-                                 (unless (try-promo (move +17 t))
-                                   (try-enpa +17))
-                                 (when (try-promo (move +16 nil t))
-                                   (when (= row 1)
-                                     (move +32 nil t))))
-                                (t
-                                 (unless (try-promo (move -15 t))
-                                   (try-enpa -15))
-                                 (unless (try-promo (move -17 t))
-                                   (try-enpa -17))
-                                 (when (try-promo (move -16 nil t))
-                                   (when (= row 6)
-                                     (move -32 nil t))))))))
+         (labels ((move-pawn ()
+                    (let ((on-end (= row (if white 6 1))))
+                      (flet ((try-promo (move)
+                               (if (and on-end move)
+                                   (add-promotions (pop moves))
+                                   move)))
+                        (declare (inline try-promo))
+                        (cond (white
+                               (unless (try-promo (move +15 t))
+                                 (try-enpa +15))
+                               (unless (try-promo (move +17 t))
+                                 (try-enpa +17))
+                               (when (try-promo (move +16 nil t))
+                                 (when (= row 1)
+                                   (move +32 nil t))))
+                              (t
+                               (unless (try-promo (move -15 t))
+                                 (try-enpa -15))
+                               (unless (try-promo (move -17 t))
+                                 (try-enpa -17))
+                               (when (try-promo (move -16 nil t))
+                                 (when (= row 6)
+                                   (move -32 nil t))))))))
 
-                    (try-enpa (delta)
-                      (when enpa
-                        (let ((to (+ from delta)))
-                          (when (= to (the board-index enpa))
-                            (add (make-move from to piece (logior +PAWN+ opp) 1))))))
+                  (try-enpa (delta)
+                    (when enpa
+                      (let ((to (+ from delta)))
+                        (when (= to (the board-index enpa))
+                          (add (make-move from to piece (logior +PAWN+ opp) 1))))))
 
-                    (add-promotions (move)
-                      (add (move-set-promoted-piece move +KNIGHT+))
-                      (add (move-set-promoted-piece move +BISHOP+))
-                      (add (move-set-promoted-piece move +ROOK+))
-                      (add (move-set-promoted-piece move +QUEEN+))
-                      nil)
+                  (add-promotions (move)
+                    (add (move-set-promoted-piece move +KNIGHT+))
+                    (add (move-set-promoted-piece move +BISHOP+))
+                    (add (move-set-promoted-piece move +ROOK+))
+                    (add (move-set-promoted-piece move +QUEEN+))
+                    nil)
 
-                    (move-knight ()
-                      (mapc #'move +MOVES-KNIGHT+))
+                  (move-knight ()
+                    (mapc #'move +MOVES-KNIGHT+))
 
-                    (move-bishop ()
-                      (mapc #'repeat +MOVES-BISHOP+))
+                  (move-bishop ()
+                    (mapc #'repeat +MOVES-BISHOP+))
 
-                    (move-rook ()
-                      (mapc #'repeat +MOVES-ROOK+))
+                  (move-rook ()
+                    (mapc #'repeat +MOVES-ROOK+))
 
-                    (move-queen ()
-                      (mapc #'repeat +MOVES-QING+))
+                  (move-queen ()
+                    (mapc #'repeat +MOVES-QING+))
 
-                    (move-king ()
-                      (mapc #'move +MOVES-QING+)
-                      (unless (attacked? game side my-king)
-                        (cond
-                          (white
-                           (when (logtest (game-state game) +WHITE-OO+)
-                             (try-castle '($G1 $F1)))
-                           (when (logtest (game-state game) +WHITE-OOO+)
-                             (try-castle '($C1 $D1 $B1))))
-                          (t
-                           (when (logtest (game-state game) +BLACK-OO+)
-                             (try-castle '($G8 $F8)))
-                           (when (logtest (game-state game) +BLACK-OOO+)
-                             (try-castle '($C8 $D8 $B8)))))))
+                  (move-king ()
+                    (mapc #'move +MOVES-QING+)
+                    (unless (attacked? game side my-king)
+                      (cond
+                        (white
+                         (when (logtest (game-state game) +WHITE-OO+)
+                           (try-castle '($G1 $F1)))
+                         (when (logtest (game-state game) +WHITE-OOO+)
+                           (try-castle '($C1 $D1 $B1))))
+                        (t
+                         (when (logtest (game-state game) +BLACK-OO+)
+                           (try-castle '($G8 $F8)))
+                         (when (logtest (game-state game) +BLACK-OOO+)
+                           (try-castle '($C8 $D8 $B8)))))))
 
-                    (try-castle (targets)
-                      (loop for index in targets
-                            unless (zerop (board-get board index))
-                              do (return-from try-castle nil))
-                      (unless (or (attacked? game side (first targets))
-                                  (attacked? game side (second targets)))
-                        (add (make-move from (car targets) piece 0 0))))
+                  (try-castle (targets)
+                    (loop for index in targets
+                          unless (zerop (board-get board index))
+                            do (return-from try-castle nil))
+                    (unless (or (attacked? game side (first targets))
+                                (attacked? game side (second targets)))
+                      (add (make-move from (car targets) piece 0 0))))
 
-                    (%move (to &optional capture no-capture)
-                      (declare (type fixnum to))
-                      (when (index-valid? to)
-                        (with-piece (board to p t)
-                          (unless (and capture (zerop p))
-                            (unless (and no-capture (not (zerop p)))
-                              (when (or (zerop p) (opp-side? p side))
-                                ;; (when (logtest p +KING+)
-                                ;;   (error "Illegal position: opponent in check"))
-                                (add (make-move from to piece p 0))))))))
+                  (%move (to &optional capture no-capture)
+                    (declare (type fixnum to))
+                    (when (index-valid? to)
+                      (with-piece (board to p t)
+                        (unless (and capture (zerop p))
+                          (unless (and no-capture (not (zerop p)))
+                            (when (or (zerop p) (opp-side? p side))
+                              ;; (when (logtest p +KING+)
+                              ;;   (error "Illegal position: opponent in check"))
+                              (add (make-move from to piece p 0))))))))
 
-                    (move (delta &optional capture no-capture)
-                      (declare (type fixnum delta))
-                      (%move (+ from delta) capture no-capture))
+                  (move (delta &optional capture no-capture)
+                    (declare (type fixnum delta))
+                    (%move (+ from delta) capture no-capture))
 
-                    (repeat (delta)
-                      (declare (type fixnum delta))
-                      (loop for to = (the fixnum (+ from delta))
-                              then (the fixnum (+ to delta))
-                            do (%move to)
-                            while (and (index-valid? to)
-                                       (zerop (board-get board to)))))
+                  (repeat (delta)
+                    (declare (type fixnum delta))
+                    (loop for to = (the fixnum (+ from delta))
+                            then (the fixnum (+ to delta))
+                          do (%move to)
+                          while (and (index-valid? to)
+                                     (zerop (board-get board to)))))
 
-                    (add (move)
-                      (car (push move moves))))
+                  (add (move)
+                    (car (push move moves))))
 
-             (case (piece piece)
-               (#.+PAWN+   (move-pawn))
-               (#.+KNIGHT+ (move-knight))
-               (#.+BISHOP+ (move-bishop))
-               (#.+ROOK+   (move-rook))
-               (#.+QUEEN+  (move-queen))
-               (#.+KING+   (move-king))))))))
+           (case (piece piece)
+             (#.+PAWN+   (move-pawn))
+             (#.+KNIGHT+ (move-knight))
+             (#.+BISHOP+ (move-bishop))
+             (#.+ROOK+   (move-rook))
+             (#.+QUEEN+  (move-queen))
+             (#.+KING+   (move-king)))))))
 
     (loop with ret = (list)
           with opp-king = (king-index game opp)
           finally (return ret)
           for m in moves do
-            (with-move (game m)
+            (with-move (game m t)
               (let ((index (if (is-king? (move-piece m))
                                (move-to m)
                                my-king)))
@@ -1031,7 +1039,7 @@
              (when (move-capture? move)
                (write-string "x" out))
              (write-string (index-field to) out)))))
-      (with-move (game move)
+      (with-move (game move t)
         (if (attacked? game)
             (write-string (if (null (game-compute-moves game))
                               "#"
@@ -1043,7 +1051,8 @@
         (has-bishops nil))
     (board-foreach
      (game-board game)
-     (lambda (p row col)
+     (lambda (p row col index)
+       (declare (ignore index))
        (cond
          ((not (zerop (logand p #.(logior +QUEEN+ +ROOK+ +PAWN+))))
           (return-from draw-by-material? nil))
@@ -1082,7 +1091,7 @@
                            do (incf promotions)
                          when (and (= depth 1) (move-check? m))
                            do (incf checks)
-                         summing (with-move (game m) (rec (1- depth)))))))
+                         summing (with-move (game m t) (rec (1- depth)))))))
       (let ((count (rec depth)))
         (format t "Depth: ~D, Count: ~D, Captures: ~D, Enpa: ~D, Checks: ~D, Promo: ~D, Castle: ~D~%"
                 depth count captures enpa checks promotions castles)
@@ -1093,7 +1102,7 @@
         with count and captures and enpa and castles and promotions
         for m in moves
         for san = (game-san game m :moves moves)
-        do (with-move (game m)
+        do (with-move (game m t)
              (with-output-to-string (*standard-output*)
                (multiple-value-setq (count captures enpa castles promotions) (perft game (1- depth))))
              (format t "~A~A ~A~%"
