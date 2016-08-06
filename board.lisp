@@ -273,7 +273,8 @@
   (make-array 120 :element-type 'piece :initial-element 0))
 
 (defun board-foreach (board fn)
-  (declare (type board board)
+  (declare (optimize speed)
+           (type board board)
            (type (function (piece (unsigned-byte 3) (unsigned-byte 3) board-index) t) fn))
   (loop for row from 0 to 7 do
     (loop for col from 0 to 7
@@ -298,18 +299,13 @@
 (defconstant +BLACK-CASTLE+ 12)
 (defconstant +ALL-CASTLE+   15)
 
-(defclass game ()
-  ((board :type board :initarg :board :accessor game-board)
-   (state :type (unsigned-byte 32) :initarg :state :accessor game-state)
-   (side :type (unsigned-byte 8) :initarg :side :accessor game-side)
-   (enpa :type (or board-index null) :initarg :enpa :accessor game-enpa)
-   (fullmove :type (unsigned-byte 32) :initarg :fullmove :accessor game-fullmove)
-   (halfmove :type (unsigned-byte 32) :initarg :halfmove :accessor game-halfmove))
-  (:default-initargs :board (make-board)
-                     :state (logior +WHITE-OO+ +WHITE-OOO+ +BLACK-OO+ +BLACK-OOO+)
-                     :side +WHITE+
-                     :enpa nil
-                     :fullmove 0))
+(defstruct game
+  (board (make-board) :type board)
+  (state 0 :type (unsigned-byte 32))
+  (side +WHITE+ :type (unsigned-byte 8))
+  (enpa nil :type (or board-index null))
+  (fullmove 0 :type (unsigned-byte 32))
+  (halfmove 0 :type (unsigned-byte 32)))
 
 (defmethod reset-from-fen ((game game) (in stream))
   (let ((board (game-board game))
@@ -668,12 +664,15 @@
 (defparameter +MOVES-QING+   `(,@+MOVES-BISHOP+ ,@+MOVES-ROOK+))
 
 (defun king-index (game &optional (side (game-side game)))
-  (declare (type game game))
+  (declare (optimize speed)
+           (type game game)
+           (type piece side))
   (let ((king (logior +KING+ side)))
     (board-foreach
      (game-board game)
      (lambda (p row col index)
-       (declare (ignore row col))
+       (declare (type piece p)
+                (ignore row col))
        (when (= p king)
          (return-from king-index index))))))
 
