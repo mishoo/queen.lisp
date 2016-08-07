@@ -744,14 +744,7 @@
                 (ignore col))
        (when (same-side? piece side)
          (labels ((move-pawn (on-end)
-                    (labels ((add (m)
-                               (with-move (game m t)
-                                 (unless (attacked? game side my-king)
-                                   (car (push (if (attacked? game opp opp-king)
-                                                  (move-set-check m)
-                                                  m)
-                                              moves)))))
-                             (try-enpa (delta)
+                    (labels ((try-enpa (delta)
                                (when enpa
                                  (let ((to (+ from delta)))
                                    (when (= to enpa)
@@ -803,20 +796,25 @@
 
                   (move-king ()
                     (mapc #'move +MOVES-QING+)
-                    ;; XXX: no point in trying these out if the king
-                    ;; is not on initial position.
-                    (unless (attacked? game side my-king)
-                      (cond
-                        (white
-                         (when (logtest (game-state game) +WHITE-OO+)
-                           (try-castle '($G1 $F1)))
-                         (when (logtest (game-state game) +WHITE-OOO+)
-                           (try-castle '($C1 $D1 $B1))))
-                        (t
-                         (when (logtest (game-state game) +BLACK-OO+)
-                           (try-castle '($G8 $F8)))
-                         (when (logtest (game-state game) +BLACK-OOO+)
-                           (try-castle '($C8 $D8 $B8)))))))
+                    (when (or (and white (= from $E1)
+                                   (logtest (game-state game) +WHITE-CASTLE+))
+                              (and (not white) (= from $E8)
+                                   (logtest (game-state game) +BLACK-CASTLE+)))
+                      ;; no point in trying these out if the king is
+                      ;; not on initial position, or we have no more
+                      ;; castles.
+                      (unless (attacked? game side my-king)
+                        (cond
+                          (white
+                           (when (logtest (game-state game) +WHITE-OO+)
+                             (try-castle '($G1 $F1)))
+                           (when (logtest (game-state game) +WHITE-OOO+)
+                             (try-castle '($C1 $D1 $B1))))
+                          (t
+                           (when (logtest (game-state game) +BLACK-OO+)
+                             (try-castle '($G8 $F8)))
+                           (when (logtest (game-state game) +BLACK-OOO+)
+                             (try-castle '($C8 $D8 $B8))))))))
 
                   (try-castle (targets)
                     (loop for index in targets
@@ -855,6 +853,8 @@
                                          (move-set-check m)
                                          m)
                                      moves)))))))
+
+           (declare (inline add))
 
            (case (piece piece)
              (#.+PAWN+   (move-pawn (= row (if white 6 1))))
