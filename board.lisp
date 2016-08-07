@@ -87,7 +87,7 @@
   (defun index-valid? (index)
     (declare (optimize speed)
              (type fixnum index))
-    (and (typep index '(unsigned-byte 8))
+    (and (typep index 'board-index)
          (zerop (logand index #x88))))
 
   (defun white (p)
@@ -302,7 +302,7 @@
 (defstruct game
   (board (make-board) :type board)
   (state 0 :type (unsigned-byte 32))
-  (side +WHITE+ :type (unsigned-byte 8))
+  (side +WHITE+ :type piece)
   (enpa nil :type (or board-index null))
   (fullmove 0 :type (unsigned-byte 32))
   (halfmove 0 :type (unsigned-byte 32)))
@@ -432,11 +432,11 @@
   '(unsigned-byte 32))
 
 (defun make-move (from to piece capture enpa)
-  (declare (type board-index from to)
+  (declare (optimize speed)
+           (type board-index from to)
            (type piece piece capture)
            (type (unsigned-byte 1) enpa))
-  (let ((move 0))
-    (setf move (dpb (index-col from) (byte 3 0) move))
+  (let  ((move (dpb (index-col from) (byte 3 0) 0)))
     (setf move (dpb (index-row from) (byte 3 3) move))
     (setf move (dpb (index-col to) (byte 3 6) move))
     (setf move (dpb (index-row to) (byte 3 9) move))
@@ -667,14 +667,13 @@
   (declare (optimize speed)
            (type game game)
            (type piece side))
-  (let ((king (logior +KING+ side)))
-    (board-foreach
-     (game-board game)
-     (lambda (p row col index)
-       (declare (type piece p)
-                (ignore row col))
-       (when (= p king)
-         (return-from king-index index))))))
+  (loop with king = (logior +KING+ side)
+        with board = (game-board game)
+        for row from 0 to 7 do
+          (loop for col from 0 to 7
+                for index = (board-index row col)
+                when (= (board-get board index) king)
+                  do (return-from king-index index))))
 
 (defun attacked? (game &optional
                          (side (game-side game))
@@ -821,24 +820,28 @@
                     (unless (attacked? game side (second targets))
                       (add (make-move from (car targets) piece 0 0))))
 
-                  (%move (to)
-                    (declare (type fixnum to))
-                    (when (index-valid? to)
-                      (with-piece (board to p t)
-                        (when (or (zerop p) (opp-side? p side))
-                          (add (make-move from to piece p 0))))))
-
                   (move (delta)
                     (declare (type fixnum delta))
-                    (%move (+ from delta)))
+                    (let ((to (+ from delta)))
+                      (when (index-valid? to)
+                        (with-piece (board to p t)
+                          (when (or (zerop p) (opp-side? p side))
+                            (add (make-move from to piece p 0)))))))
 
                   (repeat (delta)
                     (declare (type fixnum delta))
                     (loop for to = (the fixnum (+ from delta))
                             then (the fixnum (+ to delta))
-                          do (%move to)
-                          while (and (index-valid? to)
-                                     (zerop (board-get board to)))))
+                          while (index-valid? to) do
+                            (let ((p (board-get board to)))
+                              (cond
+                                ((zerop p)
+                                 (add (make-move from to piece 0 0)))
+                                ((opp-side? p side)
+                                 (add (make-move from to piece p 0))
+                                 (return))
+                                (t
+                                 (return))))))
 
                   (add (m)
                     (with-move (game m t)
@@ -848,8 +851,6 @@
                                          (move-set-check m)
                                          m)
                                      moves)))))))
-
-           (declare (inline add))
 
            (case (piece piece)
              (#.+PAWN+   (move-pawn (= row (if white 6 1))))
