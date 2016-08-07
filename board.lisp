@@ -760,7 +760,11 @@
                                  ;; `to' index should be always valid
                                  (with-piece (board to p t)
                                    (when (zerop p)
-                                     (maybe-promote (make-move from to piece 0 0))))))
+                                     (maybe-promote (make-move from to piece 0 0))
+                                     ;; we want to return true if the field is empty, so that
+                                     ;; i.e. if we're in check and D3 doesn't get us out (in which
+                                     ;; case `add' will return nil), we still want to try D4.
+                                     t))))
                              (maybe-promote (move)
                                (cond
                                  (on-end
@@ -845,9 +849,7 @@
 
                   (add (m)
                     (with-move (game m t)
-                      (let ((index (if (is-king? piece)
-                                       (move-to m)
-                                       my-king)))
+                      (let ((index (if (is-king? piece) (move-to m) my-king)))
                         (unless (attacked? game side index)
                           (car (push (if (attacked? game opp opp-king)
                                          (move-set-check m)
