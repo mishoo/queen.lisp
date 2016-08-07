@@ -798,15 +798,9 @@
                   (move-queen ()
                     (mapc #'repeat +MOVES-QING+))
 
-                  (move-king ()
+                  (move-king (may-castle)
                     (mapc #'move +MOVES-QING+)
-                    (when (or (and white (= from $E1)
-                                   (logtest (game-state game) +WHITE-CASTLE+))
-                              (and (not white) (= from $E8)
-                                   (logtest (game-state game) +BLACK-CASTLE+)))
-                      ;; no point in trying these out if the king is
-                      ;; not on initial position, or we have no more
-                      ;; castles.
+                    (when may-castle
                       (unless (attacked? game side my-king)
                         (cond
                           (white
@@ -824,8 +818,7 @@
                     (loop for index in targets
                           unless (zerop (board-get board index))
                             do (return-from try-castle nil))
-                    (unless (or (attacked? game side (first targets))
-                                (attacked? game side (second targets)))
+                    (unless (attacked? game side (second targets))
                       (add (make-move from (car targets) piece 0 0))))
 
                   (%move (to)
@@ -864,7 +857,10 @@
              (#.+BISHOP+ (move-bishop))
              (#.+ROOK+   (move-rook))
              (#.+QUEEN+  (move-queen))
-             (#.+KING+   (move-king)))))))
+             (#.+KING+   (move-king (logtest (game-state game)
+                                             (if white
+                                                 +WHITE-CASTLE+
+                                                 +BLACK-CASTLE+)))))))))
 
     moves))
 
