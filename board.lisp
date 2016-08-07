@@ -575,8 +575,6 @@
        (board-set board (move-captured-index move) 0)))
     ;; update game state
     (with-slots (state enpa side halfmove fullmove) game
-      (declare (type (unsigned-byte 32) fullmove halfmove)
-               (type (unsigned-byte 32) state))
       (setf side (if white +BLACK+ +WHITE+)
             enpa (when (and (is-pawn? piece)
                             (= (abs (- from to)) 32))
@@ -735,133 +733,132 @@
          (enpa (game-enpa game))
          (my-king (king-index game side))
          (opp-king (king-index game opp)))
-    (board-foreach
-     (game-board game)
-     (lambda (piece row col from)
-       (declare (type (unsigned-byte 3) row col)
-                (type board-index from)
-                (ignore col))
-       (when (same-side? piece side)
-         (labels ((move-pawn (on-end)
-                    (labels ((try-enpa (delta)
-                               (when enpa
-                                 (let ((to (+ from delta)))
-                                   (when (= to enpa)
-                                     (add (make-move from to piece (logior +PAWN+ opp) 1))))))
-                             (try-capture (delta)
-                               (let ((to (+ from delta)))
-                                 (when (index-valid? to)
-                                   (with-piece (board to p)
-                                     (when (opp-side? piece p)
-                                       (maybe-promote (make-move from to piece p 0)))))))
-                             (try-advance (delta)
-                               (let ((to (+ from delta)))
-                                 ;; `to' index should be always valid
-                                 (with-piece (board to p t)
-                                   (when (zerop p)
-                                     (maybe-promote (make-move from to piece 0 0))
-                                     ;; we want to return true if the field is empty, so that
-                                     ;; i.e. if we're in check and D3 doesn't get us out (in which
-                                     ;; case `add' will return nil), we still want to try D4.
-                                     t))))
-                             (maybe-promote (move)
+    (loop for row from 0 to 7 do
+      (loop for col from 0 to 7
+            for from = (board-index row col)
+            for piece = (board-get board from)
+            when (same-side? piece side) do
+              (labels
+                  ((move-pawn (on-end)
+                     (labels ((try-enpa (delta)
+                                (when enpa
+                                  (let ((to (+ from delta)))
+                                    (when (= to enpa)
+                                      (add (make-move from to piece (logior +PAWN+ opp) 1))))))
+                              (try-capture (delta)
+                                (let ((to (+ from delta)))
+                                  (when (index-valid? to)
+                                    (with-piece (board to p)
+                                      (when (opp-side? piece p)
+                                        (maybe-promote (make-move from to piece p 0)))))))
+                              (try-advance (delta)
+                                (let ((to (+ from delta)))
+                                  ;; `to' index should be always valid
+                                  (with-piece (board to p t)
+                                    (when (zerop p)
+                                      (maybe-promote (make-move from to piece 0 0))
+                                      ;; we want to return true if the field is empty, so that
+                                      ;; i.e. if we're in check and D3 doesn't get us out (in which
+                                      ;; case `add' will return nil), we still want to try D4.
+                                      t))))
+                              (maybe-promote (move)
+                                (cond
+                                  (on-end
+                                   (add (move-set-promoted-piece move +KNIGHT+))
+                                   (add (move-set-promoted-piece move +BISHOP+))
+                                   (add (move-set-promoted-piece move +ROOK+))
+                                   (add (move-set-promoted-piece move +QUEEN+)))
+                                  (t
+                                   (add move)))))
+                       (cond
+                         (white         ; white pawn
+                          (or (try-enpa +15) (try-capture +15))
+                          (or (try-enpa +17) (try-capture +17))
+                          (when (and (try-advance +16) (= row 1))
+                            (try-advance +32)))
+                         (t             ; black pawn
+                          (or (try-enpa -15) (try-capture -15))
+                          (or (try-enpa -17) (try-capture -17))
+                          (when (and (try-advance -16) (= row 6))
+                            (try-advance -32))))))
+
+                   (move-knight ()
+                     (mapc #'move +MOVES-KNIGHT+))
+
+                   (move-bishop ()
+                     (mapc #'repeat +MOVES-BISHOP+))
+
+                   (move-rook ()
+                     (mapc #'repeat +MOVES-ROOK+))
+
+                   (move-queen ()
+                     (mapc #'repeat +MOVES-QING+))
+
+                   (move-king (may-castle)
+                     (mapc #'move +MOVES-QING+)
+                     (when may-castle
+                       (unless (attacked? game side my-king)
+                         (cond
+                           (white
+                            (when (logtest (game-state game) +WHITE-OO+)
+                              (try-castle '($G1 $F1)))
+                            (when (logtest (game-state game) +WHITE-OOO+)
+                              (try-castle '($C1 $D1 $B1))))
+                           (t
+                            (when (logtest (game-state game) +BLACK-OO+)
+                              (try-castle '($G8 $F8)))
+                            (when (logtest (game-state game) +BLACK-OOO+)
+                              (try-castle '($C8 $D8 $B8))))))))
+
+                   (try-castle (targets)
+                     (loop for index in targets
+                           unless (zerop (board-get board index))
+                             do (return-from try-castle nil))
+                     (unless (attacked? game side (second targets))
+                       (add (make-move from (car targets) piece 0 0))))
+
+                   (move (delta)
+                     (declare (type fixnum delta))
+                     (let ((to (+ from delta)))
+                       (when (index-valid? to)
+                         (with-piece (board to p t)
+                           (when (or (zerop p) (opp-side? p side))
+                             (add (make-move from to piece p 0)))))))
+
+                   (repeat (delta)
+                     (declare (type fixnum delta))
+                     (loop for to = (the fixnum (+ from delta))
+                             then (the fixnum (+ to delta))
+                           while (index-valid? to) do
+                             (let ((p (board-get board to)))
                                (cond
-                                 (on-end
-                                  (add (move-set-promoted-piece move +KNIGHT+))
-                                  (add (move-set-promoted-piece move +BISHOP+))
-                                  (add (move-set-promoted-piece move +ROOK+))
-                                  (add (move-set-promoted-piece move +QUEEN+)))
+                                 ((zerop p)
+                                  (add (make-move from to piece 0 0)))
+                                 ((opp-side? p side)
+                                  (add (make-move from to piece p 0))
+                                  (return))
                                  (t
-                                  (add move)))))
-                      (cond
-                        (white          ; white pawn
-                         (or (try-enpa +15) (try-capture +15))
-                         (or (try-enpa +17) (try-capture +17))
-                         (when (and (try-advance +16) (= row 1))
-                           (try-advance +32)))
-                        (t              ; black pawn
-                         (or (try-enpa -15) (try-capture -15))
-                         (or (try-enpa -17) (try-capture -17))
-                         (when (and (try-advance -16) (= row 6))
-                           (try-advance -32))))))
+                                  (return))))))
 
-                  (move-knight ()
-                    (mapc #'move +MOVES-KNIGHT+))
+                   (add (m)
+                     (with-move (game m t)
+                       (let ((index (if (is-king? piece) (move-to m) my-king)))
+                         (unless (attacked? game side index)
+                           (car (push (if (attacked? game opp opp-king)
+                                          (move-set-check m)
+                                          m)
+                                      moves)))))))
 
-                  (move-bishop ()
-                    (mapc #'repeat +MOVES-BISHOP+))
-
-                  (move-rook ()
-                    (mapc #'repeat +MOVES-ROOK+))
-
-                  (move-queen ()
-                    (mapc #'repeat +MOVES-QING+))
-
-                  (move-king (may-castle)
-                    (mapc #'move +MOVES-QING+)
-                    (when may-castle
-                      (unless (attacked? game side my-king)
-                        (cond
-                          (white
-                           (when (logtest (game-state game) +WHITE-OO+)
-                             (try-castle '($G1 $F1)))
-                           (when (logtest (game-state game) +WHITE-OOO+)
-                             (try-castle '($C1 $D1 $B1))))
-                          (t
-                           (when (logtest (game-state game) +BLACK-OO+)
-                             (try-castle '($G8 $F8)))
-                           (when (logtest (game-state game) +BLACK-OOO+)
-                             (try-castle '($C8 $D8 $B8))))))))
-
-                  (try-castle (targets)
-                    (loop for index in targets
-                          unless (zerop (board-get board index))
-                            do (return-from try-castle nil))
-                    (unless (attacked? game side (second targets))
-                      (add (make-move from (car targets) piece 0 0))))
-
-                  (move (delta)
-                    (declare (type fixnum delta))
-                    (let ((to (+ from delta)))
-                      (when (index-valid? to)
-                        (with-piece (board to p t)
-                          (when (or (zerop p) (opp-side? p side))
-                            (add (make-move from to piece p 0)))))))
-
-                  (repeat (delta)
-                    (declare (type fixnum delta))
-                    (loop for to = (the fixnum (+ from delta))
-                            then (the fixnum (+ to delta))
-                          while (index-valid? to) do
-                            (let ((p (board-get board to)))
-                              (cond
-                                ((zerop p)
-                                 (add (make-move from to piece 0 0)))
-                                ((opp-side? p side)
-                                 (add (make-move from to piece p 0))
-                                 (return))
-                                (t
-                                 (return))))))
-
-                  (add (m)
-                    (with-move (game m t)
-                      (let ((index (if (is-king? piece) (move-to m) my-king)))
-                        (unless (attacked? game side index)
-                          (car (push (if (attacked? game opp opp-king)
-                                         (move-set-check m)
-                                         m)
-                                     moves)))))))
-
-           (case (piece piece)
-             (#.+PAWN+   (move-pawn (= row (if white 6 1))))
-             (#.+KNIGHT+ (move-knight))
-             (#.+BISHOP+ (move-bishop))
-             (#.+ROOK+   (move-rook))
-             (#.+QUEEN+  (move-queen))
-             (#.+KING+   (move-king (logtest (game-state game)
-                                             (if white
-                                                 +WHITE-CASTLE+
-                                                 +BLACK-CASTLE+)))))))))
+                (case (piece piece)
+                  (#.+PAWN+   (move-pawn (= row (if white 6 1))))
+                  (#.+KNIGHT+ (move-knight))
+                  (#.+BISHOP+ (move-bishop))
+                  (#.+ROOK+   (move-rook))
+                  (#.+QUEEN+  (move-queen))
+                  (#.+KING+   (move-king (logtest (game-state game)
+                                                  (if white
+                                                      +WHITE-CASTLE+
+                                                      +BLACK-CASTLE+))))))))
 
     moves))
 
