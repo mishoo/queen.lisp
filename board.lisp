@@ -88,6 +88,11 @@
   (logand p +WHITE+))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
+
+  ;; please forgive me for this
+  #+sbcl
+  (setf sb-ext:*inline-expansion-limit* 1000)
+
   (defun string-dammit (&rest chars)
     (coerce chars 'string))
 
@@ -95,7 +100,7 @@
     (declare (optimize speed)
              (type fixnum index))
     (and (typep index 'board-index)
-         (zerop (logand index #x88))))
+         (not (logtest index #x88))))
 
   (defun white (p)
     (declare (type piece p))
@@ -745,7 +750,7 @@
             for piece = (board-get board from)
             when (same-side? piece side) do
               (labels
-                  ((move-pawn (white on-end)
+                  ((move-pawn (c1 c2 a1 a2 on-start on-end)
                      (labels ((try-enpa (delta)
                                 (when enpa
                                   (let ((to (+ from delta)))
@@ -770,23 +775,19 @@
                               (maybe-promote (move)
                                 (cond
                                   (on-end
-                                   (add (move-set-promoted-piece move +KNIGHT+))
-                                   (add (move-set-promoted-piece move +BISHOP+))
-                                   (add (move-set-promoted-piece move +ROOK+))
-                                   (add (move-set-promoted-piece move +QUEEN+)))
+                                   (when (add (move-set-promoted-piece move +KNIGHT+))
+                                     (%add (move-set-promoted-piece move +BISHOP+))
+                                     (%add (move-set-promoted-piece move +ROOK+))
+                                     (%add (move-set-promoted-piece move +QUEEN+))))
                                   (t
                                    (add move)))))
-                       (cond
-                         (white         ; white pawn
-                          (or (try-enpa +15) (try-capture +15))
-                          (or (try-enpa +17) (try-capture +17))
-                          (when (and (try-advance +16) (= row 1))
-                            (try-advance +32)))
-                         (t             ; black pawn
-                          (or (try-enpa -15) (try-capture -15))
-                          (or (try-enpa -17) (try-capture -17))
-                          (when (and (try-advance -16) (= row 6))
-                            (try-advance -32))))))
+
+                       (declare (inline try-enpa try-capture try-advance maybe-promote))
+
+                       (unless (try-enpa c1) (try-capture c1))
+                       (unless (try-enpa c2) (try-capture c2))
+                       (when (and (try-advance a1) on-start)
+                         (try-advance a2))))
 
                    (move-knight ()
                      (mapc #'move +MOVES-KNIGHT+))
@@ -800,7 +801,7 @@
                    (move-queen ()
                      (mapc #'repeat +MOVES-QING+))
 
-                   (move-king (white)
+                   (move-king (oo ooo oo1 oo2 ooo1 ooo2 ooo3)
                      (mapc #'move +MOVES-QING+)
                      (let (flag in-check)
                        (flet ((in-check? ()
@@ -811,35 +812,19 @@
                          ;; note: `add' discards all moves that leave our king in check, so it's not
                          ;; necessary to test here whether the target field is attacked; we only
                          ;; have to check the middle field (i.e. F1 for white's O-O).
-                         (cond
-                           (white       ;white king castle
-                            (when (and (logtest (game-state game) +WHITE-OO+)
-                                       (zerop (board-get board $F1))
-                                       (zerop (board-get board $G1))
-                                       (not (in-check?))
-                                       (not (attacked? game side $F1)))
-                              (add (make-move $E1 $G1 piece 0 0)))
-                            (when (and (logtest (game-state game) +WHITE-OOO+)
-                                       (zerop (board-get board $B1))
-                                       (zerop (board-get board $C1))
-                                       (zerop (board-get board $D1))
-                                       (not (in-check?))
-                                       (not (attacked? game side $D1)))
-                              (add (make-move $E1 $C1 piece 0 0))))
-                           (t           ;black king castle
-                            (when (and (logtest (game-state game) +BLACK-OO+)
-                                       (zerop (board-get board $F8))
-                                       (zerop (board-get board $G8))
-                                       (not (in-check?))
-                                       (not (attacked? game side $F8)))
-                              (add (make-move $E8 $G8 piece 0 0)))
-                            (when (and (logtest (game-state game) +BLACK-OOO+)
-                                       (zerop (board-get board $B8))
-                                       (zerop (board-get board $C8))
-                                       (zerop (board-get board $D8))
-                                       (not (in-check?))
-                                       (not (attacked? game side $D8)))
-                              (add (make-move $E8 $C8 piece 0 0))))))))
+                         (when (and (logtest (game-state game) oo)
+                                    (zerop (board-get board oo1))
+                                    (zerop (board-get board oo2))
+                                    (not (in-check?))
+                                    (not (attacked? game side oo1)))
+                           (add (make-move from oo2 piece 0 0)))
+                         (when (and (logtest (game-state game) ooo)
+                                    (zerop (board-get board ooo1))
+                                    (zerop (board-get board ooo2))
+                                    (zerop (board-get board ooo3))
+                                    (not (in-check?))
+                                    (not (attacked? game side ooo1)))
+                           (add (make-move from ooo2 piece 0 0))))))
 
                    (move (delta)
                      (declare (type fixnum delta))
@@ -851,8 +836,7 @@
 
                    (repeat (delta)
                      (declare (type fixnum delta))
-                     (loop for to = (the fixnum (+ from delta))
-                             then (the fixnum (+ to delta))
+                     (loop for to fixnum = (+ from delta) then (+ to delta)
                            while (index-valid? to) do
                              (let ((p (board-get board to)))
                                (cond
@@ -871,17 +855,26 @@
                            (car (push (if (attacked? game opp opp-king)
                                           (move-set-check m)
                                           m)
-                                      moves)))))))
+                                      moves))))))
+
+                   (%add (m)
+                     (with-move (game m t)
+                       (car (push (if (attacked? game opp opp-king)
+                                      (move-set-check m)
+                                      m)
+                                  moves)))))
+
+                (declare (inline add %add move-pawn move-king))
 
                 (case piece
-                  (#.+PAWN+                  (move-pawn nil (= row 1)))
-                  (#.+WPAWN+                 (move-pawn t (= row 6)))
+                  (#.+PAWN+                  (move-pawn -15 -17 -16 -32 (= row 6) (= row 1)))
+                  (#.+WPAWN+                 (move-pawn +15 +17 +16 +32 (= row 1) (= row 6)))
                   ((#.+KNIGHT+ #.+WKNIGHT+)  (move-knight))
                   ((#.+BISHOP+ #.+WBISHOP+)  (move-bishop))
                   ((#.+ROOK+ #.+WROOK+)      (move-rook))
                   ((#.+QUEEN+ #.+WQUEEN+)    (move-queen))
-                  (#.+KING+                  (move-king nil))
-                  (#.+WKING+                 (move-king t))))))
+                  (#.+KING+                  (move-king +BLACK-OO+ +BLACK-OOO+ $F8 $G8 $D8 $C8 $B8))
+                  (#.+WKING+                 (move-king +WHITE-OO+ +WHITE-OOO+ $F1 $G1 $D1 $C1 $B1))))))
 
     moves))
 
