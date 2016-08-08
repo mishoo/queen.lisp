@@ -9,6 +9,13 @@
 (defconstant +PAWN+       #x10)
 (defconstant +KING+       #x20)
 
+(defconstant +WQUEEN+     (logior #x01 #x40))
+(defconstant +WROOK+      (logior #x02 #x40))
+(defconstant +WKNIGHT+    (logior #x04 #x40))
+(defconstant +WBISHOP+    (logior #x08 #x40))
+(defconstant +WPAWN+      (logior #x10 #x40))
+(defconstant +WKING+      (logior #x20 #x40))
+
 (defconstant +PROMOTABLE+ #x0f)
 (defconstant +CAPTURABLE+ #x3f)
 (defconstant +PIECE+      #x3f)
@@ -147,12 +154,12 @@
         (#.+ROOK+ #\r)
         (#.+QUEEN+ #\q)
         ;; white
-        (#.(white +PAWN+) #\P)
-        (#.(white +KNIGHT+) #\N)
-        (#.(white +KING+) #\K)
-        (#.(white +BISHOP+) #\B)
-        (#.(white +ROOK+) #\R)
-        (#.(white +QUEEN+) #\Q))))
+        (#.+WPAWN+ #\P)
+        (#.+WKNIGHT+ #\N)
+        (#.+WKING+ #\K)
+        (#.+WBISHOP+ #\B)
+        (#.+WROOK+ #\R)
+        (#.+WQUEEN+ #\Q))))
 
 (defun piece-unicode (p)
   (declare (type piece p))
@@ -167,12 +174,12 @@
     (#.+ROOK+ #\BLACK_CHESS_ROOK)
     (#.+QUEEN+ #\BLACK_CHESS_QUEEN)
     ;; white
-    (#.(white +PAWN+) #\WHITE_CHESS_PAWN)
-    (#.(white +KNIGHT+) #\WHITE_CHESS_KNIGHT)
-    (#.(white +KING+) #\WHITE_CHESS_KING)
-    (#.(white +BISHOP+) #\WHITE_CHESS_BISHOP)
-    (#.(white +ROOK+) #\WHITE_CHESS_ROOK)
-    (#.(white +QUEEN+) #\WHITE_CHESS_QUEEN)))
+    (#.+WPAWN+ #\WHITE_CHESS_PAWN)
+    (#.+WKNIGHT+ #\WHITE_CHESS_KNIGHT)
+    (#.+WKING+ #\WHITE_CHESS_KING)
+    (#.+WBISHOP+ #\WHITE_CHESS_BISHOP)
+    (#.+WROOK+ #\WHITE_CHESS_ROOK)
+    (#.+WQUEEN+ #\WHITE_CHESS_QUEEN)))
 
 (defun char-piece (p)
   (declare (type character p))
@@ -186,12 +193,12 @@
     ((#\r #\BLACK_CHESS_ROOK) +ROOK+)
     ((#\q #\BLACK_CHESS_QUEEN) +QUEEN+)
     ;; white
-    ((#\P #\WHITE_CHESS_PAWN) #.(white +PAWN+))
-    ((#\N #\WHITE_CHESS_KNIGHT) #.(white +KNIGHT+))
-    ((#\K #\WHITE_CHESS_KING) #.(white +KING+))
-    ((#\B #\WHITE_CHESS_BISHOP) #.(white +BISHOP+))
-    ((#\R #\WHITE_CHESS_ROOK) #.(white +ROOK+))
-    ((#\Q #\WHITE_CHESS_QUEEN) #.(white +QUEEN+))))
+    ((#\P #\WHITE_CHESS_PAWN) #.+WPAWN+)
+    ((#\N #\WHITE_CHESS_KNIGHT) #.+WKNIGHT+)
+    ((#\K #\WHITE_CHESS_KING) #.+WKING+)
+    ((#\B #\WHITE_CHESS_BISHOP) #.+WBISHOP+)
+    ((#\R #\WHITE_CHESS_ROOK) #.+WROOK+)
+    ((#\Q #\WHITE_CHESS_QUEEN) #.+WQUEEN+)))
 
 (defun is-pawn? (p)
   (declare (type piece p))
@@ -559,7 +566,7 @@
        (cond
          (white
           (board-set board $H1 0)
-          (board-set board $F1 #.(white +ROOK+)))
+          (board-set board $F1 +WROOK+))
          (t
           (board-set board $H8 0)
           (board-set board $F8 +ROOK+))))
@@ -567,7 +574,7 @@
        (cond
          (white
           (board-set board $A1 0)
-          (board-set board $D1 #.(white +ROOK+)))
+          (board-set board $D1 +WROOK+))
          (t
           (board-set board $A8 0)
           (board-set board $D8 +ROOK+))))
@@ -620,7 +627,7 @@
       ((move-oo? move)
        (cond
          ((move-white? move)
-          (board-set board $H1 #.(white +ROOK+))
+          (board-set board $H1 +WROOK+)
           (board-set board $F1 0))
          (t
           (board-set board $H8 +ROOK+)
@@ -628,7 +635,7 @@
       ((move-ooo? move)
        (cond
          ((move-white? move)
-          (board-set board $A1 #.(white +ROOK+))
+          (board-set board $A1 +WROOK+)
           (board-set board $D1 0))
          (t
           (board-set board $A8 +ROOK+)
@@ -703,8 +710,8 @@
                           (return)))))
       (declare (inline test check repeat))
       (cond ((is-white? opp)
-             (check #.(white +PAWN+) -15)
-             (check #.(white +PAWN+) -17))
+             (check +WPAWN+ -15)
+             (check +WPAWN+ -17))
             (t
              (check +PAWN+ +15)
              (check +PAWN+ +17)))
@@ -728,18 +735,17 @@
   (let* ((side (game-side game))
          (opp (logxor side +WHITE+))
          (board (game-board game))
-         (white (is-white? side))
          (moves '())
          (enpa (game-enpa game))
          (my-king (king-index game side))
          (opp-king (king-index game opp)))
-    (loop for row from 0 to 7 do
-      (loop for col from 0 to 7
+    (loop for row fixnum from 0 to 7 do
+      (loop for col fixnum from 0 to 7
             for from = (board-index row col)
             for piece = (board-get board from)
             when (same-side? piece side) do
               (labels
-                  ((move-pawn (on-end)
+                  ((move-pawn (white on-end)
                      (labels ((try-enpa (delta)
                                 (when enpa
                                   (let ((to (+ from delta)))
@@ -794,7 +800,7 @@
                    (move-queen ()
                      (mapc #'repeat +MOVES-QING+))
 
-                   (move-king ()
+                   (move-king (white)
                      (mapc #'move +MOVES-QING+)
                      (let (flag in-check)
                        (flet ((in-check? ()
@@ -867,13 +873,15 @@
                                           m)
                                       moves)))))))
 
-                (case (piece piece)
-                  (#.+PAWN+   (move-pawn (= row (if white 6 1))))
-                  (#.+KNIGHT+ (move-knight))
-                  (#.+BISHOP+ (move-bishop))
-                  (#.+ROOK+   (move-rook))
-                  (#.+QUEEN+  (move-queen))
-                  (#.+KING+   (move-king))))))
+                (case piece
+                  (#.+PAWN+                  (move-pawn nil (= row 1)))
+                  (#.+WPAWN+                 (move-pawn t (= row 6)))
+                  ((#.+KNIGHT+ #.+WKNIGHT+)  (move-knight))
+                  ((#.+BISHOP+ #.+WBISHOP+)  (move-bishop))
+                  ((#.+ROOK+ #.+WROOK+)      (move-rook))
+                  ((#.+QUEEN+ #.+WQUEEN+)    (move-queen))
+                  (#.+KING+                  (move-king nil))
+                  (#.+WKING+                 (move-king t))))))
 
     moves))
 
