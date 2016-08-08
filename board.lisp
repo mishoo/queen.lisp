@@ -794,28 +794,46 @@
                    (move-queen ()
                      (mapc #'repeat +MOVES-QING+))
 
-                   (move-king (may-castle)
+                   (move-king ()
                      (mapc #'move +MOVES-QING+)
-                     (when may-castle
-                       (unless (attacked? game side my-king)
+                     (let (flag in-check)
+                       (flet ((in-check? ()
+                                (if flag
+                                    in-check
+                                    (setf flag t
+                                          in-check (attacked? game side my-king)))))
+                         ;; note: `add' discards all moves that leave our king in check, so it's not
+                         ;; necessary to test here whether the target field is attacked; we only
+                         ;; have to check the middle field (i.e. F1 for white's O-O).
                          (cond
-                           (white
-                            (when (logtest (game-state game) +WHITE-OO+)
-                              (try-castle '($G1 $F1)))
-                            (when (logtest (game-state game) +WHITE-OOO+)
-                              (try-castle '($C1 $D1 $B1))))
-                           (t
-                            (when (logtest (game-state game) +BLACK-OO+)
-                              (try-castle '($G8 $F8)))
-                            (when (logtest (game-state game) +BLACK-OOO+)
-                              (try-castle '($C8 $D8 $B8))))))))
-
-                   (try-castle (targets)
-                     (loop for index in targets
-                           unless (zerop (board-get board index))
-                             do (return-from try-castle nil))
-                     (unless (attacked? game side (second targets))
-                       (add (make-move from (car targets) piece 0 0))))
+                           (white       ;white king castle
+                            (when (and (logtest (game-state game) +WHITE-OO+)
+                                       (zerop (board-get board $F1))
+                                       (zerop (board-get board $G1))
+                                       (not (in-check?))
+                                       (not (attacked? game side $F1)))
+                              (add (make-move $E1 $G1 piece 0 0)))
+                            (when (and (logtest (game-state game) +WHITE-OOO+)
+                                       (zerop (board-get board $B1))
+                                       (zerop (board-get board $C1))
+                                       (zerop (board-get board $D1))
+                                       (not (in-check?))
+                                       (not (attacked? game side $D1)))
+                              (add (make-move $E1 $C1 piece 0 0))))
+                           (t           ;black king castle
+                            (when (and (logtest (game-state game) +BLACK-OO+)
+                                       (zerop (board-get board $F8))
+                                       (zerop (board-get board $G8))
+                                       (not (in-check?))
+                                       (not (attacked? game side $F8)))
+                              (add (make-move $E8 $G8 piece 0 0)))
+                            (when (and (logtest (game-state game) +BLACK-OOO+)
+                                       (zerop (board-get board $B8))
+                                       (zerop (board-get board $C8))
+                                       (zerop (board-get board $D8))
+                                       (not (in-check?))
+                                       (not (attacked? game side $D8)))
+                              (add (make-move $E8 $C8 piece 0 0))))))))
 
                    (move (delta)
                      (declare (type fixnum delta))
@@ -855,10 +873,7 @@
                   (#.+BISHOP+ (move-bishop))
                   (#.+ROOK+   (move-rook))
                   (#.+QUEEN+  (move-queen))
-                  (#.+KING+   (move-king (logtest (game-state game)
-                                                  (if white
-                                                      +WHITE-CASTLE+
-                                                      +BLACK-CASTLE+))))))))
+                  (#.+KING+   (move-king))))))
 
     moves))
 
