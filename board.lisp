@@ -581,17 +581,17 @@
       ((move-enpa? move)
        (board-set board (move-captured-index move) 0)))
     ;; update game state
-    (with-slots (state enpa side halfmove fullmove) game
-      (setf side (if white +BLACK+ +WHITE+)
-            enpa (when (and (is-pawn? piece)
-                            (= (abs (- from to)) 32))
-                   (ash (+ from to) -1)))
-      (unless quick
-        (unless white
-          (incf fullmove))
-        (if (or (is-pawn? piece) (move-capture? move))
-            (setf halfmove 0)
-            (incf halfmove)))
+    (unless quick
+      (unless white
+        (incf (game-fullmove game)))
+      (if (or (is-pawn? piece) (move-capture? move))
+          (setf (game-halfmove game) 0)
+          (incf (game-halfmove game))))
+    (setf (game-side game) (if white +BLACK+ +WHITE+)
+          (game-enpa game) (when (and (is-pawn? piece)
+                                      (= (abs (- from to)) 32))
+                             (ash (+ from to) -1)))
+    (symbol-macrolet ((state (game-state game)))
       (cond
         ((is-king? piece)
          (let ((castle (if white +WHITE-CASTLE+ +BLACK-CASTLE+)))
