@@ -76,6 +76,7 @@
            #:draw-by-material?
 
            #:parse-pgn
+           #:game-search
            ))
 
 (in-package #:cl-chess)

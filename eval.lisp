@@ -202,7 +202,7 @@
                  (return-from pvs α)))
        α))))
 
-(defun find-best-move (game &optional (depth +MAX-DEPTH+))
+(defun game-search (game &optional (depth +MAX-DEPTH+))
   (let* ((line (cons nil nil))
          (score (pvs game depth -32000 +32000 line)))
     (values (car line) score)))
@@ -227,7 +227,7 @@
                             moves))))
          (print-board (game-board g))))
       (t
-       (multiple-value-bind (line score) (find-best-move g)
+       (multiple-value-bind (line score) (game-search g)
          (let ((m (car line)))
            (cond
              (m
