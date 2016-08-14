@@ -89,9 +89,8 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 
-  ;; please forgive me for this
-  #+sbcl
-  (setf sb-ext:*inline-expansion-limit* 1000)
+  ;; #+sbcl
+  ;; (setf sb-ext:*inline-expansion-limit* 1000)
 
   (defun string-dammit (&rest chars)
     (coerce chars 'string))
@@ -449,6 +448,7 @@
            (type piece piece capture)
            (type (unsigned-byte 1) enpa))
   (let  ((move (dpb (index-col from) (byte 3 0) 0)))
+    (declare (type move move))
     (setf move (dpb (index-row from) (byte 3 3) move))
     (setf move (dpb (index-col to) (byte 3 6) move))
     (setf move (dpb (index-row to) (byte 3 9) move))
@@ -707,8 +707,7 @@
                      (test p piece)))))
              (repeat (piece delta)
                (declare (type fixnum delta))
-               (loop for pos = (the fixnum (+ index delta))
-                       then (the fixnum (+ pos delta))
+               (loop for pos fixnum = (+ index delta) then (+ pos delta)
                      while (index-valid? pos)
                      do (with-piece (board pos p)
                           (test p piece)
@@ -743,7 +742,8 @@
          (moves '())
          (enpa (game-enpa game))
          (my-king (king-index game side))
-         (opp-king (king-index game opp)))
+         (opp-king (king-index game opp))
+         flag in-check)
     (loop for row fixnum from 0 to 7 do
       (loop for col fixnum from 0 to 7
             for from = (board-index row col)
@@ -801,30 +801,30 @@
                    (move-queen ()
                      (mapc #'repeat +MOVES-QING+))
 
+                   (in-check? ()
+                     (if flag
+                         in-check
+                         (setf flag t
+                               in-check (attacked? game side my-king))))
+
                    (move-king (oo ooo oo1 oo2 ooo1 ooo2 ooo3)
                      (mapc #'move +MOVES-QING+)
-                     (let (flag in-check)
-                       (flet ((in-check? ()
-                                (if flag
-                                    in-check
-                                    (setf flag t
-                                          in-check (attacked? game side my-king)))))
-                         ;; note: `add' discards all moves that leave our king in check, so it's not
-                         ;; necessary to test here whether the target field is attacked; we only
-                         ;; have to check the middle field (i.e. F1 for white's O-O).
-                         (when (and (logtest (game-state game) oo)
-                                    (zerop (board-get board oo1))
-                                    (zerop (board-get board oo2))
-                                    (not (in-check?))
-                                    (not (attacked? game side oo1)))
-                           (add (make-move from oo2 piece 0 0)))
-                         (when (and (logtest (game-state game) ooo)
-                                    (zerop (board-get board ooo1))
-                                    (zerop (board-get board ooo2))
-                                    (zerop (board-get board ooo3))
-                                    (not (in-check?))
-                                    (not (attacked? game side ooo1)))
-                           (add (make-move from ooo2 piece 0 0))))))
+                     ;; note: `add' discards all moves that leave our king in check, so it's not
+                     ;; necessary to test here whether the target field is attacked; we only
+                     ;; have to check the middle field (i.e. F1 for white's O-O).
+                     (when (and (logtest (game-state game) oo)
+                                (zerop (board-get board oo1))
+                                (zerop (board-get board oo2))
+                                (not (in-check?))
+                                (not (attacked? game side oo1)))
+                       (add (make-move from oo2 piece 0 0)))
+                     (when (and (logtest (game-state game) ooo)
+                                (zerop (board-get board ooo1))
+                                (zerop (board-get board ooo2))
+                                (zerop (board-get board ooo3))
+                                (not (in-check?))
+                                (not (attacked? game side ooo1)))
+                       (add (make-move from ooo2 piece 0 0))))
 
                    (move (delta)
                      (declare (type fixnum delta))
@@ -864,7 +864,7 @@
                                       m)
                                   moves)))))
 
-                (declare (inline add %add move-pawn move-king))
+                (declare (inline move-pawn move-king in-check?))
 
                 (case piece
                   (#.+PAWN+                  (move-pawn -15 -17 -16 -32 (= row 6) (= row 1)))

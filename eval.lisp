@@ -235,12 +235,8 @@
                                                      "W:" "B:")
                       (dump-line g line)
                       m)
-              (format t "~A~%" (let ((*unicode* nil))
-                                 (game-fen g)))
               (game-move g m)
-              (print-board (game-board g))
-              (format t "~A~%" (let ((*unicode* nil))
-                                 (game-fen g))))
+              (print-board (game-board g)))
              (t
               (format t "No moves found~%")))))))))
 
