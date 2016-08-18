@@ -87,23 +87,13 @@
   (declare (type piece p))
   (logand p +WHITE+))
 
+(defun index-valid? (index)
+  (declare (optimize speed)
+           (type fixnum index))
+  (and (typep index 'board-index)
+       (not (logtest index #x88))))
+
 (eval-when (:compile-toplevel :load-toplevel :execute)
-
-  ;; #+sbcl
-  ;; (setf sb-ext:*inline-expansion-limit* 1000)
-
-  (defun string-dammit (&rest chars)
-    (coerce chars 'string))
-
-  (defun index-valid? (index)
-    (declare (optimize speed)
-             (type fixnum index))
-    (and (typep index 'board-index)
-         (not (logtest index #x88))))
-
-  (defun white (p)
-    (declare (type piece p))
-    (logior p +WHITE+))
 
   (defun board-index (row col)
     (declare (optimize speed)
@@ -120,8 +110,8 @@
   (set-macro-character
    #\$ (lambda (stream ch)
          (declare (ignore ch))
-         (field-index (string-dammit (read-char stream)
-                                     (read-char stream))))))
+         (field-index (coerce (list (read-char stream)
+                                    (read-char stream)) 'string)))))
 
 (defun index-row (index)
   (declare (type board-index index))
@@ -247,13 +237,13 @@
 (defun board-get-rc (board row col)
   (declare (optimize speed)
            (type board board)
-           (type (unsigned-byte 3) row col))
+           (type (integer 0 7) row col))
   (aref board (board-index row col)))
 
 (defun board-set-rc (board row col piece)
   (declare (optimize speed)
            (type board board)
-           (type (unsigned-byte 3) row col)
+           (type (integer 0 7) row col)
            (type piece piece))
   (setf (aref board (board-index row col)) piece))
 
@@ -286,7 +276,7 @@
 (defun board-foreach (board fn)
   (declare (optimize speed)
            (type board board)
-           (type (function (piece (unsigned-byte 3) (unsigned-byte 3) board-index) t) fn))
+           (type (function (piece (integer 0 7) (integer 0 7) board-index) t) fn))
   (loop for row from 0 to 7 do
     (loop for col from 0 to 7
           for index = (board-index row col)
@@ -1061,15 +1051,19 @@
                               "+")
                           out))))))
 
-(defmethod draw-by-material? ((game game))
+(defun draw-by-material? (game)
+  (declare (optimize speed)
+           (type game game))
   (let ((has-knights nil)
         (has-bishops nil))
     (board-foreach
      (game-board game)
      (lambda (p row col index)
-       (declare (ignore index))
+       (declare (type (integer 0 7) row col)
+                (type board-index index)
+                (ignore index))
        (cond
-         ((not (zerop (logand p #.(logior +QUEEN+ +ROOK+ +PAWN+))))
+         ((logtest p #.(logior +QUEEN+ +ROOK+ +PAWN+))
           (return-from draw-by-material? nil))
          ((is-bishop? p)
           (when has-knights
@@ -1093,8 +1087,7 @@
         (promotions 0)
         (checks 0)
         (count 0)
-        (checkmates 0)
-        )
+        (checkmates 0))
     (labels ((rec (depth)
                (declare (type (unsigned-byte 8) depth))
                (let ((moves (game-compute-moves game)))
@@ -1139,83 +1132,3 @@
                      (index-field (move-from m))
                      (index-field (move-to m))
                      count))))
-
-;;; XXX: test code
-
-;; (defun print-move (move)
-;;   (declare (type move move))
-;;   (cond
-;;     ((move-oo? move)
-;;      "O-O")
-;;     ((move-ooo? move)
-;;      "O-O-O")
-;;     (t
-;;      (format nil "[~A]~A~A~A~A"
-;;              (piece-char (move-piece move))
-;;              (index-field (move-from move))
-;;              (aif (move-captured-piece move)
-;;                   (format nil "~A[~A]"
-;;                           (if (move-enpa? move) #\/ #\x)
-;;                           (piece-char it))
-;;                   #\-)
-;;              (index-field (move-to move))
-;;              (aif (move-promoted-piece move)
-;;                   (format nil "=~A" (char-upcase (piece-char it)))
-;;                   "")))))
-
-;; (defparameter g (make-instance 'game))
-;; (reset-game g)
-
-;; ;; (defun m (game from to &optional (promo 0))
-;; ;;   (let* ((board (game-board game))
-;; ;;          (piece (board-get board from))
-;; ;;          (capture (board-get board to))
-;; ;;          (oo (and (is-king? piece)
-;; ;;                   (= to (+ from 2))))
-;; ;;          (ooo (and (is-king? piece)
-;; ;;                    (= to (- from 2))))
-;; ;;          (enpa (and (is-pawn? piece)
-;; ;;                     (logtest 1 (abs (- from to)))
-;; ;;                     (zerop capture))))
-;; ;;     (when enpa
-;; ;;       (setf capture (aref board
-;; ;;                           (with-row-col (from row col) row)
-;; ;;                           (with-row-col (to row col) col))))
-;; ;;     (make-move from to piece :enpa (if enpa 1 0)
-;; ;;                              :oo (if oo 1 0)
-;; ;;                              :ooo (if ooo 1 0)
-;; ;;                              :capture capture
-;; ;;                              :promo promo)))
-
-;; (defparameter mqueue nil)
-
-;; (defun pg (&optional (game g))
-;;   (print-board (game-board game))
-;;   (format t "State: ~4,'0b (~a), Side: ~a, Enpa: ~a (~a)"
-;;           (game-state game) (game-state game)
-;;           (game-side game)
-;;           (and (game-enpa game)
-;;                (index-field (game-enpa game))) (game-enpa game)))
-
-;; (defun m (&rest args)
-;;   (let* ((moves (apply #'game-parse-san g args))
-;;          (move (car moves)))
-;;     (when (> (length moves) 1)
-;;       (format t "Ambiguous: ~{~A ~}" (mapcar #'(lambda (m)
-;;                                                  (game-san g m)) moves))
-;;       (return-from m))
-;;     (when (zerop (length moves))
-;;       (format t "Invalid move")
-;;       (return-from m))
-;;     (format t "> ~A~%" (game-san g move))
-;;     (push (list move (game-state g) (game-enpa g)) mqueue)
-;;     (game-move g move)
-;;     (pg)
-;;     move))
-
-;; (defun undo ()
-;;   (destructuring-bind (move state enpa) (pop mqueue)
-;;     (game-undo-move g move)
-;;     (setf (game-state g) state
-;;           (game-enpa g) enpa))
-;;   (pg))

@@ -8,6 +8,14 @@
            #:+BISHOP+
            #:+PAWN+
            #:+KING+
+
+           #:+WQUEEN+
+           #:+WROOK+
+           #:+WKNIGHT+
+           #:+WBISHOP+
+           #:+WPAWN+
+           #:+WKING+
+
            #:+WHITE+
            #:+FEN-START+
 
@@ -77,6 +85,7 @@
 
            #:parse-pgn
            #:game-search
+           #:dump-line
            ))
 
 (in-package #:queen)
