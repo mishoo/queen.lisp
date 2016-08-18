@@ -1,4 +1,4 @@
-(in-package #:cl-chess)
+(in-package #:queen)
 
 (defparameter *has-letter-prop* (cl-unicode:property-test "Letter"))
 

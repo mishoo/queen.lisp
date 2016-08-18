@@ -1,7 +1,5 @@
-;;;; cl-chess.asd
-
-(asdf:defsystem #:cl-chess
-  :description "Describe cl-chess here"
+(asdf:defsystem #:queen
+  :description "Describe queen here"
   :author "Your Name <your.name@example.com>"
   :license "Specify license here"
   :depends-on (#:alexandria
@@ -11,7 +9,7 @@
                #:cl-ppcre-unicode)
   :serial t
   :components ((:file "package")
-               (:file "cl-chess")
+               (:file "queen")
                (:file "stream")
                (:file "board")
                (:file "pgn")

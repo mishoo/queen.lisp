@@ -1,4 +1,4 @@
-(in-package #:cl-chess)
+(in-package #:queen)
 
 (defmethod parse-pgn ((in stream))
   (with-parse-stream in

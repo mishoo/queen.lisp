@@ -1,6 +1,6 @@
-(in-package #:cl-chess)
+(in-package #:queen)
 
-(in-readtable cl-chess::syntax)
+(in-readtable queen::syntax)
 
 (defconstant +MATK+ 10000)
 (defconstant +MATQ+ 900)

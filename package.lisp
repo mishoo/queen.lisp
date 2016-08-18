@@ -1,6 +1,6 @@
 ;;;; package.lisp
 
-(defpackage #:cl-chess
+(defpackage #:queen
   (:use #:cl #:alexandria #:named-readtables #:anaphora)
   (:export #:+QUEEN+
            #:+ROOK+
@@ -79,7 +79,7 @@
            #:game-search
            ))
 
-(in-package #:cl-chess)
+(in-package #:queen)
 
-(defreadtable cl-chess::syntax
+(defreadtable queen::syntax
   (:merge :standard))
