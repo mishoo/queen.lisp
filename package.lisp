@@ -34,6 +34,8 @@
            #:board-set
            #:with-piece
            #:board-foreach
+           #:print-board
+           #:*unicode*
 
            #:board-index
            #:index-valid?

@@ -1005,7 +1005,7 @@
   (with-input-from-string (in san)
     (game-parse-san game in moves)))
 
-(defmethod game-san ((game game) move &key (moves (game-compute-moves game)) &allow-other-keys)
+(defmethod game-san ((game game) move &optional (moves (game-compute-moves game)))
   (declare (type move move))
   (let ((piece (move-piece move))
         (from (move-from move))
@@ -1091,9 +1091,6 @@
     (labels ((rec (depth)
                (declare (type (unsigned-byte 8) depth))
                (let ((moves (game-compute-moves game)))
-                 ;; (when (and (null moves)
-                 ;;            (attacked? game))
-                 ;;   (incf checkmates))
                  (if (> depth 1)
                      (loop for m in moves do
                        (with-move (game m t)
@@ -1124,7 +1121,7 @@
   (loop with moves = (game-compute-moves game)
         with count and captures and enpa and castles and promotions
         for m in moves
-        for san = (game-san game m :moves moves)
+        for san = (game-san game m moves)
         do (with-move (game m t)
              (with-output-to-string (*standard-output*)
                (multiple-value-setq (count captures enpa castles promotions) (perft game (1- depth))))
