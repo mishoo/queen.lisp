@@ -10,4 +10,9 @@
                (:file "stream")
                (:file "board")
                (:file "pgn")
-               (:file "eval")))
+               (:file "eval")
+               (:file "tests")))
+
+(defpackage #:queen-config (:export #:*base-directory*))
+(defparameter queen-config:*base-directory* 
+  (make-pathname :name nil :type nil :defaults *load-truename*))

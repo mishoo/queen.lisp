@@ -151,4 +151,7 @@
                              #'look-ahead
                              #'read-number))
 
-         ,@body))))
+         (unwind-protect
+              (progn ,@body)
+           (when ,log
+             (unread-char (car ,log) ,input)))))))
