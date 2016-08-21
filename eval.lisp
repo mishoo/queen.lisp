@@ -262,7 +262,8 @@
 
             ((string= line ""))
 
-            ((string= line "exit")
+            ((or (string= line "exit")
+                 (string= line "end"))
              (return))
 
             ((string= line "go")
@@ -274,7 +275,8 @@
 
             ((string= line "reset")
              (reset-game game)
-             (setf history (list)))
+             (setf fen +FEN-START+
+                   history (list)))
 
             ((string= line "undo")
              (pop history)
