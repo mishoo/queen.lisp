@@ -4,6 +4,7 @@
   :license "MIT"
   :depends-on (#:named-readtables
                #:anaphora
+               #:alexandria
                #:cl-ppcre-unicode)
   :serial t
   :components ((:file "package")

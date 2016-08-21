@@ -990,7 +990,7 @@
             (setf promo (read-promo))
             (loop while (maybe-skip #\# #\+ #\! #\?))
 
-            (unless piece
+            (when (and (not piece) (or from-file from-rank to-file to-rank))
               (setf piece (logior side +PAWN+)))
 
             (when (and (or from-file from-rank)

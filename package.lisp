@@ -88,6 +88,7 @@
            #:parse-pgn
            #:game-search
            #:dump-line
+           #:play
            ))
 
 (in-package #:queen)

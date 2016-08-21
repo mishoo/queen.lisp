@@ -87,6 +87,19 @@ Synopsis
     ;; test the move generator using perftsuite.epd
     (run-perft-tests 5)         ; takes 2 minutes for depth 5
 
+    ;; play a game against the engine
+    (play &key fen depth)       ; default depth=5 and start position
+    ;;
+    ;; enter: valid move in SAN notation, or:
+    ;;
+    ;;        go -- force computer to move
+    ;;        exit -- stop game
+    ;;        restart -- restart game to given fen
+    ;;        reset -- start new game
+    ;;        undo -- undo last move
+    ;;        pgn -- show all moves played so far in PGN
+    ;;        fen -- show current position as FEN
+
 
 Data structures and types
 -------------------------
@@ -205,7 +218,7 @@ Game functions
 - (game-parse-san game san &optional moves) -- parse a move in SAN notation.
   If `moves` is not passed, it defaults to (game-compute-moves game).  This
   function returns a list of `move` elements; if SAN is valid, this list
-  should have exactly one move, but when it's not valid or ambiguous it
+  should contain exactly one move, but when it's not valid or ambiguous it
   might have zero or more elements.  `SAN` should be a string or an input
   stream.
 
@@ -395,23 +408,22 @@ is just a 32 bit unsigned integer):
 Evaluation
 ----------
 
-I wrote this just for fun.  I don't reasonably expect to produce a chess
-engine better than what's available these days, but if nothing else, this
-helped me learn a lot about optimizing Common Lisp code.  Before working on
-evaluation, (perft 6) ran in 12 minutes.  After optimization it's down to
-under 40 seconds [*].  Thankfully, this didn't require large refactoring of
-the code -- just inline trivial functions, add type declarations, `(declare
-(optimize speed))` to certain key functions, and listen to advice from SBCL
-(which is impressively smart).
+I wrote this just for fun, and it's outside the scope of this library.  I
+don't reasonably expect to produce a strong chess engine, compared to what's
+available these days, but if nothing else, this helped me learn a lot about
+optimizing Common Lisp code.  Before working on evaluation, (perft 6) ran in
+12 minutes.  After optimization it's down to under 40 seconds [*].  Luckily,
+this didn't require large refactoring of the code -- just inline trivial
+functions, add type declarations, `(declare (optimize speed))` to certain
+key functions, and listen to advice from SBCL (which is impressively smart).
 
   [*] For comparison, Crafty runs perft 6 in 4 seconds on my machine.  Now
-      Crafty is a venerable, strong chess engine, written in
-      hand-optimized C and using bitboards for move generation (the
-      fastest known method, to which I couldn't wrap my brains around).
-      I'd say 10x slower is Okay.
+      Crafty is a venerable, strong chess engine, written in hand-optimized
+      C and using bitboards for move generation (the fastest known method; I
+      couldn't wrap my brains around it).  I'd say 10x slower is Okay.
 
-      I'm interested in the performance of other array-based move
-      generators (i.e. not bitboards), if you know any please tell me.
+      I'm interested in the performance of other array-based move generators
+      (i.e. not bitboards), if you know any please tell me.
 
 Main entry point:
 

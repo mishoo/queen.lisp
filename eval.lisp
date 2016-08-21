@@ -222,3 +222,90 @@
                    (with-move (game move)
                      (rec (cdr moves) nil))))))
       (rec moves t))))
+
+(defun play (&key
+               (fen +FEN-START+)
+               (depth +MAX-DEPTH+))
+  (let ((game (make-game))
+        (history (list)))
+    (reset-from-fen game fen)
+    (flet ((computer-move ()
+             (format t "...thinking...~%")
+             (multiple-value-bind (line score)
+                 (game-search game depth)
+               (cond
+                 ((null line)
+                  (format t "No moves found~%"))
+                 (t
+                  (format t "Computer: ~A (score ~A)~%"
+                          (dump-line game line) score)
+                  (push (car line) history)
+                  (game-move game (car line))))))
+           (finished? ()
+             (let ((moves (game-compute-moves game)))
+               (cond
+                 ((null moves)
+                  (if (attacked? game) :checkmate :stalemate))
+                 ((draw-by-material? game)
+                  :draw)))))
+
+      (loop
+        (awhen (finished?)
+          (format t "Game ended: ~A~%" it))
+        (print-board (game-board game))
+        (format t "Enter move: ")
+        (let ((line (read-line *standard-input* nil)))
+          (cond
+            ((null line)
+             (return))
+
+            ((string= line ""))
+
+            ((string= line "exit")
+             (return))
+
+            ((string= line "go")
+             (computer-move))
+
+            ((string= line "restart")
+             (reset-from-fen game fen)
+             (setf history (list)))
+
+            ((string= line "reset")
+             (reset-game game)
+             (setf history (list)))
+
+            ((string= line "undo")
+             (pop history)
+             (reset-from-fen game fen)
+             (mapc (lambda (move)
+                     (game-move game move))
+                   (reverse history)))
+
+            ((string= line "pgn")
+             (let ((game (make-game)))
+               (reset-from-fen game fen)
+               (let ((*unicode* nil))
+                 (format t "~A~%" (dump-line game (reverse history))))))
+
+            ((string= line "fen")
+             (let ((*unicode* nil))
+               (format t "~A~%" (game-fen game))))
+
+            (t
+             (let ((moves (game-parse-san game line)))
+               (cond
+                 ((null moves)
+                  (format t "Invalid move: ~A~%" line))
+                 ((> (length moves) 1)
+                  (format t "Ambiguous move: ~{~A~^, ~}~%"
+                          (mapcar (lambda (m)
+                                    (game-san game m))
+                                  moves)))
+                 (t
+                  (push (car moves) history)
+                  (game-move game (car moves))
+                  (print-board (game-board game))
+                  (computer-move)))))))
+
+        (format t "~%")))))
