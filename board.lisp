@@ -550,7 +550,6 @@
         (to (move-to move))
         (piece (move-piece move))
         (white (move-white? move))
-        (black (move-black? move))
         (promo (move-promoted-piece move)))
     ;; update board
     (board-set board to (or promo piece))
@@ -575,30 +574,35 @@
           (board-set board $D8 +ROOK+))))
       ((move-enpa? move)
        (board-set board (move-captured-index move) 0)))
-    ;; update game state
+
+    ;; update side to move and en-passant target
+    (setf (game-side game) (if white +BLACK+ +WHITE+)
+          (game-enpa game) (when (and (is-pawn? piece)
+                                      (= (abs (- from to)) 32))
+                             (ash (+ from to) -1)))
+
+    ;; update castling state
+    (symbol-macrolet ((state (game-state game)))
+      (when (and (logtest state +WHITE-OO+)
+                 (or (= from $E1) (= from $H1) (= to $H1)))
+        (setf state (logxor state +WHITE-OO+)))
+      (when (and (logtest state +WHITE-OOO+)
+                 (or (= from $E1) (= from $A1) (= to $A1)))
+        (setf state (logxor state +WHITE-OOO+)))
+      (when (and (logtest state +BLACK-OO+)
+                 (or (= from $E8) (= from $H8) (= to $H8)))
+        (setf state (logxor state +BLACK-OO+)))
+      (when (and (logtest state +BLACK-OOO+)
+                 (or (= from $E8) (= from $A8) (= to $A8)))
+        (setf state (logxor state +BLACK-OOO+))))
+
+    ;; fullmove and halfmove counters
     (unless quick
       (unless white
         (incf (game-fullmove game)))
       (if (or (is-pawn? piece) (move-capture? move))
           (setf (game-halfmove game) 0)
-          (incf (game-halfmove game))))
-    (setf (game-side game) (if white +BLACK+ +WHITE+)
-          (game-enpa game) (when (and (is-pawn? piece)
-                                      (= (abs (- from to)) 32))
-                             (ash (+ from to) -1)))
-    (symbol-macrolet ((state (game-state game)))
-      (cond
-        ((is-king? piece)
-         (let ((castle (if white +WHITE-CASTLE+ +BLACK-CASTLE+)))
-           (setf state (logxor (logior state castle) castle))))
-        ((or (and white (= from $A1)) (and black (= to $A1)))
-         (setf state (logxor (logior state +WHITE-OOO+) +WHITE-OOO+)))
-        ((or (and white (= from $H1)) (and black (= to $H1)))
-         (setf state (logxor (logior state +WHITE-OO+) +WHITE-OO+)))
-        ((or (and black (= from $A8)) (and white (= to $A8)))
-         (setf state (logxor (logior state +BLACK-OOO+) +BLACK-OOO+)))
-        ((or (and black (= from $H8)) (and white (= to $H8)))
-         (setf state (logxor (logior state +BLACK-OO+) +BLACK-OO+)))))))
+          (incf (game-halfmove game))))))
 
 (defun board-undo-move (board move)
   (declare (optimize speed)
