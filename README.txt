@@ -33,7 +33,7 @@ Synopsis
     (loop for m in moves
           do (format t "~A~%" (game-san g m)))
 
-    ;; perft test to depth 6 (~40 sec. on my laptop from start position)
+    ;; perft test to depth 6 (~36 sec. on my laptop from start position)
     (time (perft g 6))
 
     ;; try a move
@@ -83,6 +83,9 @@ Synopsis
 
     QUEEN> (let ((*unicode* t)) (dump-line g (game-search g 5)))
     "1. ♔e1 h1=♛+ 2. ♕xh1 c1=♛+ 3. ♖d1#"
+
+    ;; test the move generator using perftsuite.epd
+    (run-perft-tests 5)         ; takes 2 minutes for depth 5
 
 
 Data structures and types
@@ -233,10 +236,10 @@ plist like this:
 HEADERS is an alist associating header name (as string) with the value (also
 a string).
 
-MOVES is a list of moves/comments found in the PGN data, in the order they
-are encountered.  It has this form:
+MOVES is a list of moves/comments/result found in the PGN data, in the order
+they are encountered.  It has this form:
 
-    ((:move . NUMBER) ... (:comment . "text") ...)
+    ((:move . NUMBER) ... (:comment . "text") ... (:result . "1-0"))
 
 The moves are in numerical representation described above.
 
@@ -395,11 +398,20 @@ Evaluation
 I wrote this just for fun.  I don't reasonably expect to produce a chess
 engine better than what's available these days, but if nothing else, this
 helped me learn a lot about optimizing Common Lisp code.  Before working on
-evaluation, (perft 6) ran in 12 minutes.  After optimization it's down to 40
-seconds.  Thankfully, this didn't require large refactoring of the code --
-just inline trivial functions, add type declarations, `(declare (optimize
-speed))` to certain key functions, and listen to advice from SBCL (which is
-impressively smart).
+evaluation, (perft 6) ran in 12 minutes.  After optimization it's down to
+under 40 seconds [*].  Thankfully, this didn't require large refactoring of
+the code -- just inline trivial functions, add type declarations, `(declare
+(optimize speed))` to certain key functions, and listen to advice from SBCL
+(which is impressively smart).
+
+  [*] For comparison, Crafty runs perft 6 in 4 seconds on my machine.  Now
+      Crafty is a venerable, strong chess engine, written in
+      hand-optimized C and using bitboards for move generation (the
+      fastest known method, to which I couldn't wrap my brains around).
+      I'd say 10x slower is Okay.
+
+      I'm interested in the performance of other array-based move
+      generators (i.e. not bitboards), if you know any please tell me.
 
 Main entry point:
 
