@@ -253,7 +253,8 @@
         (awhen (finished?)
           (format t "Game ended: ~A~%" it))
         (print-board (game-board game))
-        (format t "Enter move: ")
+        (format t "Your turn: ")
+        (finish-output)
         (let ((line (read-line *standard-input* nil)))
           (cond
             ((null line)
