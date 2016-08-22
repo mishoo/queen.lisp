@@ -11,11 +11,16 @@
 
 (defparameter +MAX-DEPTH+ 5)
 
+(deftype score ()
+  `(integer -32000 32000))
+
 (defmacro defscore (name &body value)
-  `(defparameter ,name
-     (make-array '(8 8) :element-type '(byte 8)
-                        :initial-contents
-                        (reverse ',value))))
+  `(progn
+     (declaim (type (simple-array (integer -100 100) (8 8)) ,name))
+     (defparameter ,name
+       (make-array '(8 8) :element-type '(integer -100 100)
+                          :initial-contents
+                          (reverse ',value)))))
 
 (defscore *p-scores*
   ( 0   0   0   0   0   0   0   0)
@@ -88,7 +93,9 @@
   (-50 -30 -30 -30 -30 -30 -30 -50))
 
 (defun piece-value (piece)
-  (case (piece piece)
+  (declare (optimize speed)
+           (type piece piece))
+  (ecase (piece piece)
     (#.+PAWN+   +MATP+)
     (#.+KNIGHT+ +MATN+)
     (#.+BISHOP+ +MATB+)
@@ -96,35 +103,69 @@
     (#.+QUEEN+  +MATQ+)
     (#.+KING+   +MATK+)))
 
-(defun get-score (piece row col)
+(declaim (type (function () score) get-score))
+(defun get-score (piece row col &optional ending)
+  (declare (optimize speed)
+           (type piece piece)
+           (type (integer 0 7) row col))
   (unless (is-white? piece)
     (setf row (- 7 row)
           col (- 7 col)))
-  (case (piece piece)
+  (ecase (piece piece)
     (#.+PAWN+   (+ +MATP+ (aref *p-scores* row col)))
     (#.+KNIGHT+ (+ +MATN+ (aref *n-scores* row col)))
     (#.+BISHOP+ (+ +MATB+ (aref *b-scores* row col)))
     (#.+ROOK+   (+ +MATR+ (aref *r-scores* row col)))
     (#.+QUEEN+  (+ +MATQ+ (aref *q-scores* row col)))
-    (#.+KING+
-     ;; XXX: handle endgame
-     (+ +MATK+ (aref *k-scores-opening* row col)))))
+    (#.+KING+   (+ +MATK+ (aref (if ending
+                                    *k-scores-ending*
+                                    *k-scores-opening*) row col)))))
 
+(declaim (type (function () score) static-value))
 (defun static-value (game)
+  (declare (optimize speed)
+           (type game game))
   (let ((total 0)
+        (kr1 0) (kc1 0) (kr2 0) (kc2 0)
+        (m1 0) (m2 0)
         (our-side (game-side game)))
+    (declare (type score total m1 m2)
+             (type (integer 0 7) kr1 kc1 kr2 kc2))
     (board-foreach
      (game-board game)
      (lambda (piece row col index)
        (declare (ignore index))
-       (let ((score (get-score piece row col)))
-         (if (same-side? piece our-side)
-             (incf total score)
-             (decf total score)))))
+       (cond
+         ((is-king? piece)
+          (cond
+            ((same-side? piece our-side)
+             (setf kr1 row kc1 col))
+            (t
+             (setf kr2 row kc2 col))))
+         (t
+          (let ((score (get-score piece row col)))
+            (if (same-side? piece our-side)
+                (progn
+                  (incf total score)
+                  (unless (logtest piece +PAWN+)
+                    (incf m1 (piece-value piece))))
+                (progn
+                  (decf total score)
+                  (unless (logtest piece +PAWN+)
+                    (incf m2 (piece-value piece))))))))))
+    (let ((end-game (and (< m1 #.(+ +MATQ+ +MATR+))
+                         (< m2 #.(+ +MATQ+ +MATR+)))))
+      (incf total (get-score (logior +KING+ our-side)
+                             kr1 kc1 end-game))
+      (decf total (get-score (logxor (logior +KING+ our-side) our-side)
+                             kr2 kc2 end-game)))
     total))
 
 (defun move-value (move)
+  (declare (optimize speed)
+           (type move move))
   (let ((score (piece-value (move-piece move))))
+    (declare (type fixnum score))
     (awhen (move-captured-piece move)
       (setf score (+ 10000 (piece-value it))))
     (awhen (move-promoted-piece move)
@@ -147,7 +188,13 @@
                                    ))
                              moves)))
 
+(declaim (type (function () score) quies))
 (defun quies (game α β moves pline)
+  (declare (optimize speed)
+           (type game game)
+           (type score α β)
+           (type list moves)
+           (type cons pline))
   (let ((score (static-value game)))
     (when (>= score β)
       (return-from quies β))
@@ -170,36 +217,49 @@
                    (setf (car pline) (cons move (car line))))
               finally (return α)))))
 
+(declaim (type (function () score) pvs))
 (defun pvs (game depth α β pline)
-  (declare (type game game)
+  (declare (optimize speed)
+           (type game game)
            (type (unsigned-byte 8) depth)
-           (type (integer -32000 32000) α β)
+           (type score α β)
            (type cons pline))
   (let ((moves (sort-moves (game-compute-moves game))))
     (cond
       ((null moves)
        (if (attacked? game)
-           -15000
+           ;; for a checkmate, subtract depth so that shallow
+           ;; checkmates score better
+           (- -15000 depth)
+           ;; for a stalemate, negate the static board value -- we'd
+           ;; like to go for draw if we score lower than the opponent.
            (- (static-value game))))
       ((zerop depth)
-       (quies game α β moves pline))
+       ;; somehow SBCL doesn't figure out that QUIES returns a SCORE
+       (the score (- (quies game α β moves pline) depth)))
       (t
-       (loop with score = nil
-             for line = (cons nil nil)
-             for move in moves do
-               (with-move (game move t)
-                 (cond
-                   (score
-                    (setf score (- (pvs game (1- depth) (- 0 α 1) (- α) line)))
-                    (when (< α score β)
-                      (setf score (- (pvs game (1- depth) (- β) (- score) line)))))
-                   (t
-                    (setf score (- (pvs game (1- depth) (- β) (- α) line))))))
-               (when (> score α)
-                 (setf α score)
-                 (setf (car pline) (cons move (car line))))
-               (when (>= α β)
-                 (return-from pvs α)))
+       (let ((score 0))
+         (declare (type score score))
+         (loop for first = t then nil
+               for line = (cons nil nil)
+               for move in moves do
+                 ;; (when (= depth 5)
+                 ;;   (format t "Researching: ~A (~A..~A ~A)~%"
+                 ;;           (dump-line game (list move))
+                 ;;           α β score))
+                 (with-move (game move t)
+                   (cond
+                     (first
+                      (setf score (- (pvs game (1- depth) (- β) (- α) line))))
+                     (t
+                      (setf score (- (pvs game (1- depth) (- 0 α 1) (- α) line)))
+                      (when (< α score β)
+                        (setf score (- (pvs game (1- depth) (- β) (- score) line)))))))
+                 (when (> score α)
+                   (setf α score)
+                   (setf (car pline) (cons move (car line))))
+                 (when (>= α β)
+                   (return-from pvs α))))
        α))))
 
 (defun game-search (game &optional (depth +MAX-DEPTH+))

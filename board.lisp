@@ -288,7 +288,7 @@
   (loop for row from 7 downto 0
         for line = (loop for col from 0 to 7
                          collect (piece-char (board-get-rc board row col)))
-        do (format output "~D │ ~{~A ~}~%" (+ row 1) line))
+        do (format output "~D │ ~{~A~^ ~}~%" (+ row 1) line))
   (format output "  └─────────────────~%")
   (format output "    a b c d e f g h~%"))
 
@@ -393,7 +393,8 @@
 (defmethod game-fen ((game game))
   (let ((board (game-board game))
         (state (game-state game))
-        (enpa (game-enpa game)))
+        (enpa (game-enpa game))
+        (*unicode* nil))
     (with-output-to-string (*standard-output*)
       (loop for row from 7 downto 0
             do (loop with empty = 0
