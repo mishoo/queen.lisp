@@ -218,49 +218,84 @@
               finally (return α)))))
 
 (declaim (type (function () score) pvs))
-(defun pvs (game depth α β pline)
+(defun pvs (game start-depth α β pline)
   (declare (optimize speed)
            (type game game)
-           (type (unsigned-byte 8) depth)
+           (type (unsigned-byte 8) start-depth)
            (type score α β)
            (type cons pline))
-  (let ((moves (sort-moves (game-compute-moves game))))
-    (cond
-      ((null moves)
-       (if (attacked? game)
-           ;; for a checkmate, subtract depth so that shallow
-           ;; checkmates score better
-           (- -15000 depth)
-           ;; for a stalemate, negate the static board value -- we'd
-           ;; like to go for draw if we score lower than the opponent.
-           (- (static-value game))))
-      ((zerop depth)
-       ;; somehow SBCL doesn't figure out that QUIES returns a SCORE
-       (the score (- (quies game α β moves pline) depth)))
-      (t
-       (let ((score 0))
-         (declare (type score score))
-         (loop for first = t then nil
-               for line = (cons nil nil)
-               for move in moves do
-                 ;; (when (= depth 5)
-                 ;;   (format t "Researching: ~A (~A..~A ~A)~%"
-                 ;;           (dump-line game (list move))
-                 ;;           α β score))
-                 (with-move (game move t)
-                   (cond
-                     (first
-                      (setf score (- (pvs game (1- depth) (- β) (- α) line))))
-                     (t
-                      (setf score (- (pvs game (1- depth) (- 0 α 1) (- α) line)))
-                      (when (< α score β)
-                        (setf score (- (pvs game (1- depth) (- β) (- score) line)))))))
-                 (when (> score α)
-                   (setf α score)
-                   (setf (car pline) (cons move (car line))))
-                 (when (>= α β)
-                   (return-from pvs α))))
-       α))))
+  (labels
+      ((rec (depth α β pline)
+         (declare (type (unsigned-byte 8) depth)
+                  (type score α β)
+                  (type cons pline))
+         (let ((moves (if (= depth start-depth)
+                          (init-moves game)
+                          (sort-moves (game-compute-moves game)))))
+           (cond
+             ((null moves)
+              (if (attacked? game)
+                  ;; for a checkmate, subtract depth so that shallow
+                  ;; checkmates score better
+                  (- -15000 depth)
+                  ;; for a stalemate, negate the static board value -- we'd
+                  ;; like to go for draw if we score lower than the opponent.
+                  (- (static-value game))))
+             ((zerop depth)
+              ;; somehow SBCL doesn't figure out that QUIES returns a SCORE
+              (the score (- (quies game α β moves pline) depth)))
+             (t
+              (let ((score 0))
+                (declare (type score score))
+                (loop for first = t then nil
+                      for line = (cons nil nil)
+                      for move in moves do
+                        ;; (when (= depth 5)
+                        ;;   (format t "Researching: ~A (~A..~A ~A)~%"
+                        ;;           (dump-line game (list move))
+                        ;;           α β score))
+                        (with-move (game move t)
+                          (cond
+                            (first
+                             (setf score (- (rec (1- depth) (- β) (- α) line))))
+                            (t
+                             (setf score (- (rec (1- depth) (- 0 α 1) (- α) line)))
+                             (when (< α score β)
+                               (setf score (- (rec (1- depth) (- β) (- score) line)))))))
+                        (when (> score α)
+                          (setf α score)
+                          (setf (car pline) (cons move (car line))))
+                        (when (>= α β)
+                          (return-from rec α))))
+              α)))))
+    (rec start-depth α β pline)))
+
+(defun init-moves (game &optional (depth 2))
+  (labels ((score (depth α β)
+             (let ((moves (sort-moves (game-compute-moves game))))
+               (cond
+                 ((null moves)
+                  (if (attacked? game)
+                      (- -15000 depth)
+                      (- (static-value game))))
+                 ((zerop depth)
+                  (static-value game))
+                 (t
+                  (loop for m in moves
+                        for score = (with-move (game m)
+                                      (- (score (1- depth) (- β) (- α))))
+                        finally (return α)
+                        when (> score α)
+                          do (setf α score)
+                        when (>= α β)
+                          do (return α)))))))
+    (let ((scores (loop for m in (sort-moves (game-compute-moves game))
+                        collect (cons m (with-move (game m)
+                                          (score depth -32000 32000))))))
+      (mapcar #'car
+              (stable-sort scores
+                           (lambda (c1 c2)
+                             (< (cdr c1) (cdr c2))))))))
 
 (defun game-search (game &optional (depth +MAX-DEPTH+))
   (let* ((line (cons nil nil))
@@ -313,7 +348,8 @@
         (awhen (finished?)
           (format t "Game ended: ~A~%" it))
         (print-board (game-board game))
-        (format t "Your turn: ")
+        (format t "~A: " (if (is-white? (game-side game))
+                             "White" "Black"))
         (finish-output)
         (let ((line (read-line *standard-input* nil)))
           (cond
