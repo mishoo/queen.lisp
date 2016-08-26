@@ -120,7 +120,7 @@ Note: this section documents internals, which might change.
        │ └──────────────── King
        └────────────────── White
 
-  A piece cannot be both a queen or a rook, of course — so we could have
+  A piece cannot be both a queen and a rook, of course — so we could have
   used fewer bits — but it's sometimes useful to test whether a piece is
   *either* a queen or a rook; by allocating one bit for each piece type, we
   can do that by AND-ing with 3 (Queen + Rook).
