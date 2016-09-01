@@ -2,12 +2,13 @@
 
 (in-readtable queen::syntax)
 
-(defconstant +MATK+ 10000)
-(defconstant +MATQ+ 900)
-(defconstant +MATR+ 500)
-(defconstant +MATB+ 330)
-(defconstant +MATN+ 320)
-(defconstant +MATP+ 100)
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defconstant +MATK+ 10000)
+  (defconstant +MATQ+ 900)
+  (defconstant +MATR+ 500)
+  (defconstant +MATB+ 330)
+  (defconstant +MATN+ 320)
+  (defconstant +MATP+ 100))
 
 (defparameter +MAX-DEPTH+ 5)
 

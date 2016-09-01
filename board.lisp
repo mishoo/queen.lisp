@@ -2,26 +2,27 @@
 
 (in-readtable queen::syntax)
 
-(defconstant +QUEEN+      #x01)
-(defconstant +ROOK+       #x02)
-(defconstant +KNIGHT+     #x04)
-(defconstant +BISHOP+     #x08)
-(defconstant +PAWN+       #x10)
-(defconstant +KING+       #x20)
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defconstant +QUEEN+      #x01)
+  (defconstant +ROOK+       #x02)
+  (defconstant +KNIGHT+     #x04)
+  (defconstant +BISHOP+     #x08)
+  (defconstant +PAWN+       #x10)
+  (defconstant +KING+       #x20)
 
-(defconstant +WQUEEN+     (logior #x01 #x40))
-(defconstant +WROOK+      (logior #x02 #x40))
-(defconstant +WKNIGHT+    (logior #x04 #x40))
-(defconstant +WBISHOP+    (logior #x08 #x40))
-(defconstant +WPAWN+      (logior #x10 #x40))
-(defconstant +WKING+      (logior #x20 #x40))
+  (defconstant +WQUEEN+     (logior #x01 #x40))
+  (defconstant +WROOK+      (logior #x02 #x40))
+  (defconstant +WKNIGHT+    (logior #x04 #x40))
+  (defconstant +WBISHOP+    (logior #x08 #x40))
+  (defconstant +WPAWN+      (logior #x10 #x40))
+  (defconstant +WKING+      (logior #x20 #x40))
 
-(defconstant +PROMOTABLE+ #x0f)
-(defconstant +CAPTURABLE+ #x3f)
-(defconstant +PIECE+      #x3f)
+  (defconstant +PROMOTABLE+ #x0f)
+  (defconstant +CAPTURABLE+ #x3f)
+  (defconstant +PIECE+      #x3f)
 
-(defconstant +WHITE+      #x40)
-(defconstant +BLACK+      #x00)
+  (defconstant +WHITE+      #x40)
+  (defconstant +BLACK+      #x00))
 
 (defparameter +FEN-START+ "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
 
@@ -339,7 +340,7 @@
                    (otherwise (error "Cannot read playing side"))))
 
                (read-castling ()
-                 (if (eq (peek) #\-)
+                 (if (eql (peek) #\-)
                      (next)
                      (loop while (find (peek) "kqKQ")
                            do (case (next)
@@ -350,7 +351,7 @@
                  (setf (game-state game) state))
 
                (read-en-passant ()
-                 (if (eq (peek) #\-)
+                 (if (eql (peek) #\-)
                      (progn
                        (next)
                        (setf (game-enpa game) nil))
@@ -886,10 +887,10 @@
                (when (and from to)
                  (return-from matches
                    (when (and (= from mfrom) (= to mto)
-                              (eq promo (move-promoted-piece m)))
+                              (eql promo (move-promoted-piece m)))
                      m)))
-               (when (and (eq piece (move-piece m))
-                          (eq promo (move-promoted-piece m)))
+               (when (and (eql piece (move-piece m))
+                          (eql promo (move-promoted-piece m)))
                  (with-row-col (mfrom mfromrow mfromcol)
                    (with-row-col (mto mtorow mtocol)
                      (when (and from-file (/= from-file mfromcol))
@@ -900,10 +901,10 @@
                        (return-from matches nil))
                      (when (and to-rank (/= to-rank mtorow))
                        (return-from matches nil))
-                     (when (eq capture t)
+                     (when (eql capture t)
                        (return-from matches (and (move-capture? m) m)))
                      (when capture
-                       (return-from matches (and (eq (move-captured-piece m) capture) m)))
+                       (return-from matches (and (eql (move-captured-piece m) capture) m)))
                      (return-from matches m)))))))
 
       (with-parse-stream in
@@ -939,12 +940,12 @@
                        (setf from (board-index rank file)))))
 
                  (maybe-skip (&rest chars)
-                   (when (member (peek) chars :test #'eq)
+                   (when (member (peek) chars :test #'eql)
                      (next)))
 
                  (skip-sep ()
                    (awhen (maybe-skip #\x #\: #\-)
-                     (when (or (eq it #\x) (eq it #\:))
+                     (when (or (eql it #\x) (eql it #\:))
                        (setf capture t))))
 
                  (read-to ()
@@ -955,21 +956,21 @@
                        (setf to (board-index rank file)))))
 
                  (read-promo ()
-                   (when (eq (peek) #\=)
+                   (when (eql (peek) #\=)
                      (next))
                    (read-piece))
 
                  (read-castle ()
-                   (when (eq (peek) #\O)
+                   (when (eql (peek) #\O)
                      (next)
-                     (unless (eq (next) #\-)
+                     (unless (eql (next) #\-)
                        (return-from game-parse-san nil))
-                     (unless (eq (next) #\O)
+                     (unless (eql (next) #\O)
                        (return-from game-parse-san nil))
                      (cond
-                       ((eq (peek) #\-)
+                       ((eql (peek) #\-)
                         (next)
-                        (unless (eq (next) #\O)
+                        (unless (eql (next) #\O)
                           (return-from game-parse-san nil))
                         (setf piece (logior +KING+ side)
                               from  (if white $E1 $E8)

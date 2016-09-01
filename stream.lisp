@@ -25,8 +25,8 @@
 
             (next ()
               (let ((ch (,-next)))
-                (when (and (eq ch #\Return)
-                           (eq (peek) #\Newline))
+                (when (and (eql ch #\Return)
+                           (eql (peek) #\Newline))
                   (incf ,pos)
                   (setf ch (,-next)))
                 (case ch
@@ -90,7 +90,7 @@
               (cond
                 ((characterp ch)
                  (let ((curr (next)))
-                   (if (eq ch curr)
+                   (if (eql ch curr)
                        curr
                        (unless no-error
                          (croak "Expected ~A but found ~A" ch curr)))))
@@ -107,14 +107,20 @@
                  (error "Unknown token in `skip'"))))
 
             (read-number ()
-              (loop with n = nil
-                    for ch = (next)
-                    while ch
-                    for d = (digit? ch)
-                    while d do (setf n (+ d (* (or n 0) 10)))
-                    finally (unget ch) (return n)))
+              (let (n d ch)
+                (tagbody
+                 next
+                   (setq ch (next))
+                   (unless ch (go finish))
+                   (setq d (digit? ch))
+                   (unless d (go finish))
+                   (setf n (+ d (* (or n 0) 10)))
+                   (go next)
+                 finish
+                   (when ch (unget ch)))
+                n))
 
-            (read-string (&optional (quote #\") (esc #\Backslash))
+            (read-string (&optional (quote #\") (esc #\\))
               (skip quote)
               (let* ((escaped nil))
                 (prog1 (read-while (lambda (ch)
@@ -122,9 +128,9 @@
                                        (escaped
                                         (setf escaped nil)
                                         t)
-                                       ((eq ch quote)
+                                       ((eql ch quote)
                                         nil)
-                                       ((eq ch esc)
+                                       ((eql ch esc)
                                         (next)
                                         (setf escaped t)
                                         t)
