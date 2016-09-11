@@ -1113,7 +1113,7 @@
                            when (move-check? m)
                              do (incf checks)
                            do (incf count)
-                              (when count-mates
+                              (when (and count-mates (move-check? m))
                                 (with-move (game m t)
                                   (if (and (attacked? game)
                                            (null (game-compute-moves game)))
