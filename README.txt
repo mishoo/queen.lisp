@@ -230,7 +230,7 @@ Game functions
 
 - (perft game depth &optional count-mates) -- return PERFT results for the
   current game, to the given depth.  Pass true for `count-mates` if you'd
-  like to count checkmates as well (drastically increases the run time).
+  like to count checkmates as well (slightly increases the run time).
 
 - (divide game depth) -- used for debugging; see [1] for more information
   about PERFT and DIVIDE.
