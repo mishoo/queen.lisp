@@ -66,6 +66,7 @@
            #:move-ooo?
 
            #:game
+           #:make-game
            #:reset-from-fen
            #:reset-game
            #:game-fen
