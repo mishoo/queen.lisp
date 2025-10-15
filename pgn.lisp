@@ -72,10 +72,9 @@
                         (skip-whitespace)
                      finally (return (nreverse data)))))))
 
-      (skip-whitespace)
-      (let* ((headers (loop while (eql #\[ (peek))
-                            collect (prog1 (read-header)
-                                      (skip-whitespace))))
+      (let* ((headers (loop do (skip-whitespace)
+                            while (eql #\[ (peek))
+                            collect (read-header)))
              (game (make-instance 'game))
              (start-fen (assoc "fen" headers :test #'string-equal)))
         (reset-from-fen game (if start-fen
