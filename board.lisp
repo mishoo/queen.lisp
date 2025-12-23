@@ -314,18 +314,19 @@
         (state 0))
     (with-parse-stream in
       (labels ((read-row (row)
-                 (loop for ch = (next)
+                 (loop for ch = (peek)
                        for col upfrom 0
                        do (cond
                             ((find ch "pnkbrqPNKBRQ")
+                             (next)
                              (board-set-rc board row col (char-piece ch)))
                             ((find ch "12345678")
+                             (next)
                              (dotimes (i (- (char-code ch) 48))
                                (board-set-rc board row col 0)
                                (incf col))
                              (decf col))
-                            (t (unget ch)
-                               (return)))))
+                            (t (return)))))
 
                (read-position ()
                  (loop for row from 7 downto 0
@@ -365,10 +366,10 @@
                                           (- (char-code (char-downcase col)) 97))))))
 
                (read-halfmove ()
-                 (setf (game-halfmove game) (read-number)))
+                 (setf (game-halfmove game) (read-integer)))
 
                (read-fullmove ()
-                 (setf (game-fullmove game) (read-number))))
+                 (setf (game-fullmove game) (read-integer))))
 
         ;; now do it
         (read-position)
@@ -434,19 +435,23 @@
 (deftype move ()
   '(unsigned-byte 32))
 
+(defmacro pipe (init &rest forms)
+  (loop for result = init then (append form (list result))
+        for form in forms
+        finally (return result)))
+
 (defun make-move (from to piece capture enpa)
   (declare (optimize speed)
            (type board-index from to)
            (type piece piece capture)
            (type (unsigned-byte 1) enpa))
-  (let  ((move (dpb (index-col from) (byte 3 0) 0)))
-    (declare (type move move))
-    (setf move (dpb (index-row from) (byte 3 3) move))
-    (setf move (dpb (index-col to) (byte 3 6) move))
-    (setf move (dpb (index-row to) (byte 3 9) move))
-    (setf move (dpb piece (byte 7 12) move))
-    (setf move (dpb capture (byte 6 23) move))
-    (setf move (dpb enpa (byte 1 29) move))))
+  (pipe (index-col from)
+        (dpb (index-row from) (byte 3 3))
+        (dpb (index-col to) (byte 3 6))
+        (dpb (index-row to) (byte 3 9))
+        (dpb piece (byte 7 12))
+        (dpb capture (byte 6 23))
+        (dpb enpa (byte 1 29))))
 
 (defun move-from (move)
   (declare (type move move))
@@ -939,12 +944,12 @@
                      (when (and file rank)
                        (setf from (board-index rank file)))))
 
-                 (maybe-skip (&rest chars)
+                 (maybe-skip (chars)
                    (when (member (peek) chars :test #'eql)
                      (next)))
 
                  (skip-sep ()
-                   (awhen (maybe-skip #\x #\: #\-)
+                   (awhen (maybe-skip '(#\x #\: #\-))
                      (when (or (eql it #\x) (eql it #\:))
                        (setf capture t))))
 
@@ -990,7 +995,7 @@
                 (setf capture (logxor it +WHITE+))))
             (read-to)
             (setf promo (read-promo))
-            (loop while (maybe-skip #\# #\+ #\! #\?))
+            (loop while (maybe-skip '(#\# #\+ #\! #\?)))
 
             (when (and (not piece) (or from-file from-rank to-file to-rank))
               (setf piece (logior side +PAWN+)))

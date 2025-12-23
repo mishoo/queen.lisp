@@ -5,30 +5,18 @@
 (defmacro with-parse-stream (input &body body)
   (let ((pos (gensym "pos"))
         (line (gensym "line"))
-        (col (gensym "col"))
-        (log (gensym "log"))
-        (-next (gensym "-next")))
-    `(let ((,pos 0) (,line 1) (,col 0) (,log nil))
+        (col (gensym "col")))
+    `(let ((,pos 0) (,line 1) (,col 0))
        (labels
-           ((,-next ()
-              (if ,log
-                  (pop ,log)
-                  (read-char ,input nil 'EOF)))
-
-            (unget (ch)
-              (push ch ,log))
-
-            (peek ()
-              (if ,log
-                  (car ,log)
-                  (peek-char nil ,input nil nil)))
+           ((peek ()
+              (peek-char nil ,input nil nil))
 
             (next ()
-              (let ((ch (,-next)))
+              (let ((ch (read-char ,input nil 'EOF)))
                 (when (and (eql ch #\Return)
                            (eql (peek) #\Newline))
                   (incf ,pos)
-                  (setf ch (,-next)))
+                  (setf ch (read-char ,input nil 'EOF)))
                 (case ch
                   (EOF
                    nil)
@@ -73,19 +61,6 @@
               (or (digit? ch)
                   (letter? ch)))
 
-            (look-ahead (len func)
-              (let ((savepos ,pos)
-                    (saveline ,line)
-                    (savecol ,col))
-                (let ((chars (loop repeat len collect (next))))
-                  (or (funcall func chars)
-                      (progn
-                        (setf ,pos savepos
-                              ,line saveline
-                              ,col savecol
-                              ,log (nconc chars ,log))
-                        nil)))))
-
             (skip (ch &optional no-error)
               (cond
                 ((characterp ch)
@@ -95,54 +70,40 @@
                        (unless no-error
                          (croak "Expected ~A but found ~A" ch curr)))))
                 ((stringp ch)
-                 (let ((match
-                           (look-ahead (length ch)
-                                       (lambda (chars)
-                                         (unless (member nil chars)
-                                           (string= ch (coerce chars 'string)))))))
-                   (if match match
+                 (let* ((i -1)
+                        (n (length ch))
+                        (val (read-while (lambda (curr)
+                                           (and (< (incf i) n)
+                                                (eql curr (char ch i)))))))
+                   (if (= i n) val
                        (unless no-error
-                         (croak "Expected ~A ch")))))
+                         (croak "Expected ~A but found ~A" ch val)))))
                 (t
                  (error "Unknown token in `skip'"))))
 
-            (read-number ()
-              (let (n d ch)
-                (tagbody
-                 next
-                   (setq ch (next))
-                   (unless ch (go finish))
-                   (setq d (digit? ch))
-                   (unless d (go finish))
-                   (setf n (+ d (* (or n 0) 10)))
-                   (go next)
-                 finish
-                   (when ch (unget ch)))
-                n))
+            (read-integer ()
+              (let ((str (read-while #'digit?)))
+                (unless (zerop (length str))
+                  (parse-integer str))))
 
             (read-string (&optional (quote #\") (esc #\\))
               (skip quote)
-              (let* ((escaped nil))
-                (prog1 (read-while (lambda (ch)
-                                     (cond
-                                       (escaped
-                                        (setf escaped nil)
-                                        t)
-                                       ((eql ch quote)
-                                        nil)
-                                       ((eql ch esc)
-                                        (next)
-                                        (setf escaped t)
-                                        t)
-                                       (t t))))
-                  (skip quote))))
+              (read-while (lambda (ch)
+                            (cond
+                              ((eql ch esc)
+                               (next)
+                               (or (peek)
+                                   (error "Unexpected EOF reading string")))
+                              ((eql ch quote)
+                               (next)
+                               nil)
+                              (t t)))))
 
             (skip-whitespace ()
               (read-while #'whitespace?)))
 
          (declare (ignorable #'peek
                              #'next
-                             #'unget
                              #'eof?
                              #'croak
                              #'read-while
@@ -154,10 +115,6 @@
                              #'skip
                              #'read-string
                              #'skip-whitespace
-                             #'look-ahead
-                             #'read-number))
+                             #'read-integer))
 
-         (unwind-protect
-              (progn ,@body)
-           (when ,log
-             (unread-char (car ,log) ,input)))))))
+         ,@body))))

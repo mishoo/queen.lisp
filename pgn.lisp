@@ -1,6 +1,8 @@
 (in-package #:queen)
 
-(defmethod parse-pgn ((in stream))
+(defgeneric parse-pgn (input &key ext-moves &allow-other-keys))
+
+(defmethod parse-pgn ((in stream) &key ext-moves)
   (with-parse-stream in
     (labels
         ((read-sym ()
@@ -15,67 +17,71 @@
              (skip #\])
              (cons name value)))
 
-         (read-result ()
-           (if (eql #\* (peek))
-               (progn (next) "*")
-               (look-ahead 3 (lambda (chars)
-                               (unless (member nil chars)
-                                 (let ((str (coerce chars 'string)))
-                                   (cond
-                                     ((string= "1-0" str)
-                                      "1-0")
-                                     ((string= "0-1" str)
-                                      "0-1")
-                                     ((string= "1/2" str)
-                                      (skip "-1/2")
-                                      "1/2-1/2"))))))))
-
          (read-moves (game)
            (let ((data '()))
              (flet ((move ()
-                      (let* ((movestr (read-while #'non-whitespace?))
-                             (valid (game-parse-san game movestr)))
+                      (let* ((comp-moves (game-compute-moves game))
+                             (valid (game-parse-san game in comp-moves)))
                         (skip-whitespace)
                         (cond
                           ((null valid)
-                           (error "Invalid move (~A)" movestr))
+                           (croak "Invalid move"))
                           ((< 1 (length valid))
-                           (error "Ambiguous move (~A)" movestr)))
-                        (game-move game (car valid))
-                        (push (cons :move (car valid)) data)))
+                           (croak "Ambiguous move")))
+                        (cond
+                          (ext-moves
+                           (push (list :move (car valid)
+                                       :san (game-san game (car valid) comp-moves)
+                                       :fen-before (game-fen game)
+                                       :fen-after (progn
+                                                    (game-move game (car valid))
+                                                    (game-fen game)))
+                                 data))
+                          (t
+                           (push (cons :move (car valid)) data)
+                           (game-move game (car valid))))))
                     (comment1 ()
-                      (skip #\;)
                       (read-while (lambda (ch)
                                     (not (eql #\Newline ch)))))
                     (comment2 ()
-                      (skip #\{)
                       (prog1
                           (read-while (lambda (ch)
                                         (not (eql #\} ch))))
                         (skip #\}))))
-               (loop while (peek)
-                     do (skip-whitespace)
-                        (or (awhen (read-result)
-                              (push (cons :result it) data)
-                              (return (nreverse data)))
-                            (when (eql (peek) #\;)
-                              (push (cons :comment (comment1)) data))
-                            (when (eql (peek) #\{)
-                              (push (cons :comment (comment2)) data))
-                            (progn
-                              (when (read-number)
-                                (skip #\.)
-                                (when (eql #\. (peek))
-                                  (skip ".."))
-                                (skip-whitespace))
-                              (move)))
-                        (skip-whitespace)
+               (loop for ch = (peek) while ch do
+                 (skip-whitespace)
+                 (cond
+                   ((eql ch #\;)
+                    (next)
+                    (push (cons :comment (comment1)) data))
+                   ((eql ch #\{)
+                    (next)
+                    (push (cons :comment (comment2)) data))
+                   (t
+                    (awhen (read-integer)
+                      (cond
+                        ((and (= it 0) (eql (peek) #\-)) ; 0-1
+                         (skip "-1")
+                         (return (nreverse data)))
+                        ((and (= it 1) (eql (peek) #\-)) ; 1-0
+                         (skip "-0")
+                         (return (nreverse data)))
+                        ((and (= it 1) (eql (peek) #\/)) ; 1-2/1-2
+                         (skip "/2-1/2")
+                         (return (nreverse data)))
+                        (t
+                         (skip #\.)
+                         (skip-whitespace)
+                         (when (eql #\. (peek))
+                           (skip ".."))
+                         (skip-whitespace))))
+                    (move)))
                      finally (return (nreverse data)))))))
 
       (let* ((headers (loop do (skip-whitespace)
                             while (eql #\[ (peek))
                             collect (read-header)))
-             (game (make-instance 'game))
+             (game (make-game))
              (start-fen (assoc "fen" headers :test #'string-equal)))
         (reset-from-fen game (if start-fen
                                  (cdr start-fen)
@@ -84,6 +90,6 @@
           :moves ,(read-moves game)
           :game ,game)))))
 
-(defmethod parse-pgn ((pgn string))
+(defmethod parse-pgn ((pgn string) &rest args &key &allow-other-keys)
   (with-input-from-string (in pgn)
-    (parse-pgn in)))
+    (apply #'parse-pgn in args)))
