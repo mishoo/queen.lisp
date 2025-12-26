@@ -75,6 +75,15 @@
                             (next)
                             (done))
                           (croak "Unmatched close paren"))
+                         ((eql ch #\$) ; $N annotations, not supported but skip silently
+                          (next)
+                          (read-integer))
+                         ((eql ch #\*)  ; end - result unknown
+                          (next)
+                          (when variant
+                            (skip-whitespace)
+                            (skip #\)))
+                          (done))
                          (t
                           (awhen (read-integer)
                             (cond
