@@ -75,7 +75,7 @@
                         (val (read-while (lambda (curr)
                                            (and (< (incf i) n)
                                                 (eql curr (char ch i)))))))
-                   (if (= i n) val
+                   (if (string= ch val) val
                        (unless no-error
                          (croak "Expected ~A but found ~A" ch val)))))
                 (t
