@@ -25,10 +25,10 @@
                                        (skip-whitespace)
                                        (skip #\;)
                                        (skip #\D)
-                                       (read-number))
+                                       (read-integer))
                                      (progn
                                        (skip-whitespace)
-                                       (read-number))))))
+                                       (read-integer))))))
                    (let ((count (perft game depth))
                          (result (cdr (assoc depth results))))
                      (cond

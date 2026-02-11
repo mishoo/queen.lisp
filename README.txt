@@ -109,16 +109,16 @@ Note: this section documents internals, which might change.
 - `piece` -- an `(unsigned-byte 8)`.  We use six bits for the piece and one for
   the side, as follows:
 
-    ┌─┬─┬─┬─┬─┬─┬─┬─┐
-    │7│6│5│4│3│2│1│0│
-    └─┴┬┴┬┴┬┴┬┴┬┴┬┴┬┘
-       │ │ │ │ │ │ └────── Queen
-       │ │ │ │ │ └──────── Rook
-       │ │ │ │ └────────── Knight
-       │ │ │ └──────────── Bishop
-       │ │ └────────────── Pawn
-       │ └──────────────── King
-       └────────────────── White
+  ┌─┬─┬─┬─┬─┬─┬─┬─┐
+  │7│6│5│4│3│2│1│0│
+  └─┴┬┴┬┴┬┴┬┴┬┴┬┴┬┘
+     │ │ │ │ │ │ └────── Queen
+     │ │ │ │ │ └──────── Rook
+     │ │ │ │ └────────── Knight
+     │ │ │ └──────────── Bishop
+     │ │ └────────────── Pawn
+     │ └──────────────── King
+     └────────────────── White
 
   A piece cannot be both a queen and a rook, of course — so we could have
   used fewer bits — but it's sometimes useful to test whether a piece is
@@ -137,30 +137,29 @@ Note: this section documents internals, which might change.
   (i.e. on other values we never store pieces, even if they still fall between 0
   and 119).
 
-- `move` -- an `(unsigned-byte 32)`:
+- `move` -- an `(unsigned-byte 30)`:
 
-     3 3 2 2 2 2 2 2 2 2 2 2 1 1 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0
-     1 0 9 8 7 6 5 4 3 2 1 0 9 8 7 6 5 4 3 2 1 0 9 8 7 6 5 4 3 2 1 0
-    ┌─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┐
-    │ │+│E│x│x│x│x│x│x│=│=│=│=│p│p│p│p│p│p│p│R│R│R│C│C│C│R│R│R│C│C│C│
-    └─┴┬┴┬┴┬┴─┴─┴─┴─┴┬┴┬┴─┴─┴┬┴┬┴─┴─┴─┴─┴─┴┬┴┬┴─┴─┴─┴─┴┬┴┬┴─┴─┴─┴─┴┬┘
-       │ │ └────┬────┘ └──┬──┘ └─────┬─────┘ └────┬────┘ └────┬────┘
-       │ │      │         │          │            │           │
-       │ │      │         │          │            │           └────── FROM
-       │ │      │         │          │            └────────────────── TO
-       │ │      │         │          └─────────────────────────────── PIECE
-       │ │      │         └────────────────────────────────────────── PROMOTION
-       │ │      └──────────────────────────────────────────────────── CAPTURE
-       │ └─────────────────────────────────────────────────────────── ENPA
-       └───────────────────────────────────────────────────────────── CHECK
+   3 3 2 2 2 2 2 2 2 2 2 2 1 1 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0
+   1 0 9 8 7 6 5 4 3 2 1 0 9 8 7 6 5 4 3 2 1 0 9 8 7 6 5 4 3 2 1 0
+  ╭─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─╮
+  │ │ │x│x│x│x│x│=│=│=│=│p│p│p│p│p│p│p│R│R│R│+│C│C│C│R│R│R│E│C│C│C│
+  ╰─┴─┴┬┴─┴─┴─┴┬┴┬┴─┴─┴┬┴┬┴─┴─┴─┴─┴─┴┬┴┬┴─┴┬┴┬┴┬┴─┴┬┴┬┴─┴┬┴┬┴┬┴─┴┬╯
+       ╰───┬───╯ ╰──┬──╯ ╰─────┬─────╯ ╰─┬─╯ │ ╰─┬─╯ ╰─┬─╯ │ ╰─┬─╯
+           │        │          │         │   │   │     ╰───┼───┴────╴ FROM
+           │        │          │         │   │   │         ╰────────╴ ENPA
+           │        │          │         ╰───┼───┴──────────────────╴ TO
+           │        │          │             ╰──────────────────────╴ CHECK
+           │        │          ╰────────────────────────────────────╴ PIECE
+           │        ╰───────────────────────────────────────────────╴ PROMOTION
+           ╰────────────────────────────────────────────────────────╴ CAPTURE
 
-     R : row, 3 bits (integer 0 7)
-     C : col, 3 bits (integer 0 7)
-     p : piece moved, 7 bits (including side: bit 18 is 1 for white moves)
-     = : piece promoted to, 4 bits (same side as p)
-     x : captured piece, 6 bits (opposite side from p)
-     E : 1 if en-passant move, 0 otherwise
-     + : 1 if checking move, 0 otherwise
+  R : row, 3 bits (integer 0 7)
+  C : col, 3 bits (integer 0 7)
+  p : piece moved, 7 bits (including side: bit 20 is 1 for white moves)
+  = : piece promoted to, 4 bits (same side as p)
+  x : captured piece, 5 bits (opposite side from p)
+  E : 1 if en-passant move, 0 otherwise
+  + : 1 if checking move, 0 otherwise
 
   Moves are created with the `game-compute-moves` function.  While you *can*
   create an `(unsigned-byte 32)` manually, or maybe via the `make-move`
@@ -340,9 +339,9 @@ A board is stored in a simple array of 120 `piece`-s.
   integer between 0 and 119 and it has the fourth and eighth bit clear.
   More exactly, a valid index looks like this:
 
-    ┌─┬─┬─┬─┬─┬─┬─┬─┐
-    │0│R│R│R│0│C│C│C│
-    └─┴─┴─┴─┴─┴─┴─┴─┘
+  ┌─┬─┬─┬─┬─┬─┬─┬─┐
+  │0│R│R│R│0│C│C│C│
+  └─┴─┴─┴─┴─┴─┴─┴─┘
 
   Bits 0, 1, 2 are for the column, and 4, 5, 6 for the row.
 

@@ -91,7 +91,8 @@
 (defun index-valid? (index)
   (declare (optimize speed)
            (type fixnum index))
-  (and (typep index 'board-index)
+  (and (>= index 0)
+       (<= index 119)
        (not (logtest index #x88))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
@@ -99,7 +100,7 @@
   (defun board-index (row col)
     (declare (optimize speed)
              (type (integer 0 7) row col))
-    (dpb row (byte 3 4) col))
+    (logior (ash row 4) col))
 
   (defun field-index (field)
     (declare (type (simple-string 2) field))
@@ -433,43 +434,34 @@
 ;;; moves
 
 (deftype move ()
-  '(unsigned-byte 32))
-
-(defmacro pipe (init &rest forms)
-  (loop for result = init then (append form (list result))
-        for form in forms
-        finally (return result)))
+  '(unsigned-byte 30))
 
 (defun make-move (from to piece capture enpa)
   (declare (optimize speed)
            (type board-index from to)
            (type piece piece capture)
            (type (unsigned-byte 1) enpa))
-  (pipe (index-col from)
-        (dpb (index-row from) (byte 3 3))
-        (dpb (index-col to) (byte 3 6))
-        (dpb (index-row to) (byte 3 9))
-        (dpb piece (byte 7 12))
-        (dpb capture (byte 6 23))
-        (dpb enpa (byte 1 29))))
+  (logior from
+          (ash to 7)
+          (ash piece 14)
+          (ash (logand 31 capture) 25)
+          (ash enpa 3)))
 
 (defun move-from (move)
   (declare (type move move))
-  (board-index (ldb (byte 3 3) move)
-               (ldb (byte 3 0) move)))
+  (logand move #b1110111))
 
 (defun move-to (move)
   (declare (type move move))
-  (board-index (ldb (byte 3 9) move)
-               (ldb (byte 3 6) move)))
+  (logand (ash move -7) #b1110111))
 
 (defun move-piece (move)
   (declare (type move move))
-  (ldb (byte 7 12) move))
+  (ldb (byte 7 14) move))
 
 (defun move-white? (move)
   (declare (type move move))
-  (ldb-test (byte 1 18) move))
+  (ldb-test (byte 1 20) move))
 
 (defun move-black? (move)
   (declare (type move move))
@@ -477,15 +469,15 @@
 
 (defun move-side (move)
   (declare (type move move))
-  (ash (ldb (byte 1 18) move) 6))
+  (ash (ldb (byte 1 20) move) 6))
 
 (defun move-capture? (move)
   (declare (type move move))
-  (ldb-test (byte 6 23) move))
+  (ldb-test (byte 5 25) move))
 
 (defun move-captured-piece (move)
   (declare (type move move))
-  (let ((p (ldb (byte 6 23) move)))
+  (let ((p (ldb (byte 5 25) move)))
     (cond
       ((zerop p) nil)
       ((move-black? move) (logior p +WHITE+))
@@ -493,11 +485,11 @@
 
 (defun move-promote? (move)
   (declare (type move move))
-  (ldb-test (byte 4 19) move))
+  (ldb-test (byte 4 21) move))
 
 (defun move-promoted-piece (move)
   (declare (type move move))
-  (let ((p (ldb (byte 4 19) move)))
+  (let ((p (ldb (byte 4 21) move)))
     (cond
       ((zerop p) nil)
       ((move-black? move) p)
@@ -506,26 +498,26 @@
 (defun move-set-promoted-piece (move promo)
   (declare (type move move)
            (type piece promo))
-  (dpb promo (byte 4 19) move))
+  (dpb promo (byte 4 21) move))
 
 (defun move-set-check (move)
   (declare (type move move))
-  (dpb 1 (byte 1 30) move))
+  (dpb 1 (byte 1 10) move))
 
 (defun move-check? (move)
   (declare (type move move))
-  (ldb-test (byte 1 30) move))
+  (ldb-test (byte 1 10) move))
 
 (defun move-enpa? (move)
   (declare (type move move))
-  (ldb-test (byte 1 29) move))
+  (ldb-test (byte 1 3) move))
 
 (defun move-captured-index (move)
   (declare (type move move))
   (cond
     ((move-enpa? move)
-     (board-index (ldb (byte 3 3) move)
-                  (ldb (byte 3 6) move)))
+     (board-index (ldb (byte 3 4) move)
+                  (ldb (byte 3 7) move)))
     ((move-capture? move)
      (move-to move))
     (t
@@ -533,18 +525,18 @@
 
 (defun move-oo? (move)
   (declare (type move move))
-  (= (logand move #b0111111000111000111)
-     #||#         #b0100000000110000100))
+  (= (logand move #b011111100001110000111)
+     #||#         #b010000000001100000100))
 
 (defun move-ooo? (move)
   (declare (type move move))
-  (= (logand move #b0111111000111000111)
-     #||#         #b0100000000010000100))
+  (= (logand move #b011111100001110000111)
+     #||#         #b010000000000100000100))
 
 (defun move-castle? (move)
   (declare (type move move))
-  (= (logand move #b0111111000011000111)
-     #||#         #b0100000000010000100))
+  (= (logand move #b011111100000110000111)
+     #||#         #b010000000000100000100))
 
 ;;; move execution
 
@@ -1067,26 +1059,27 @@
            (type game game))
   (let ((has-knights nil)
         (has-bishops nil))
-    (board-foreach
-     (game-board game)
-     (lambda (p row col index)
-       (declare (type (integer 0 7) row col)
-                (type board-index index)
-                (ignore index))
-       (cond
-         ((logtest p #.(logior +QUEEN+ +ROOK+ +PAWN+))
-          (return-from draw-by-material? nil))
-         ((is-bishop? p)
-          (when has-knights
-            (return-from draw-by-material? nil))
-          (let ((color (logand (+ row col) 1)))
-            (when (and has-bishops (/= has-bishops color))
+    (flet
+        ((check (p row col index)
+           (declare (type (integer 0 7) row col)
+                    (type board-index index)
+                    (ignore index))
+           (cond
+             ((logtest p #.(logior +QUEEN+ +ROOK+ +PAWN+))
               (return-from draw-by-material? nil))
-            (setf has-bishops color)))
-         ((is-knight? p)
-          (when has-bishops
-            (return-from draw-by-material? nil))
-          (setf has-knights t)))))
+             ((is-bishop? p)
+              (when has-knights
+                (return-from draw-by-material? nil))
+              (let ((color (logand (+ row col) 1)))
+                (when (and has-bishops (/= has-bishops color))
+                  (return-from draw-by-material? nil))
+                (setf has-bishops color)))
+             ((is-knight? p)
+              (when has-bishops
+                (return-from draw-by-material? nil))
+              (setf has-knights t)))))
+      (declare (dynamic-extent #'check))
+      (board-foreach (game-board game) #'check))
     t))
 
 ;; EOF - TEST STUFF
